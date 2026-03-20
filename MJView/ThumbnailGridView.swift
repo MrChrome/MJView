@@ -214,6 +214,7 @@ struct ThumbnailGridView: View {
             Divider()
 
             // Thumbnail grid
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: 4)],
@@ -271,6 +272,14 @@ struct ThumbnailGridView: View {
                 }
                 .padding(4)
             }
+            .onChange(of: selectedImage) {
+                if let id = selectedImage.map({ "i:" + $0.url.path }) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+            } // ScrollViewReader
 
             Divider()
 

@@ -34,7 +34,6 @@ struct EditCommands: Commands {
             Button("Delete") {
                 appState.deleteTrigger += 1
             }
-            .keyboardShortcut(.delete, modifiers: [])
             .disabled(appState.selectedImage == nil)
         }
     }

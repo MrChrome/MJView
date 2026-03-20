@@ -148,6 +148,9 @@ struct ContentView: View {
                 } else if event.keyCode == 124 { // right arrow
                     selectNextImage()
                     return nil
+                } else if event.keyCode == 51 { // delete/backspace
+                    deleteSelected()
+                    return nil
                 }
                 return event
             }
@@ -156,6 +159,7 @@ struct ContentView: View {
 
     private func deleteSelected() {
         print("deleteSelected called, selectedImage: \(selectedImage?.url.lastPathComponent ?? "nil")")
+        print("accessedURL: \(loader.accessedURL?.path ?? "nil")")
         guard let image = selectedImage else { return }
         let sorted = sortedImages
         // Advance to next, then previous, before deleting
@@ -181,14 +185,18 @@ struct ContentView: View {
         guard let current = selectedImage,
               let index = sortedImages.firstIndex(of: current),
               index > 0 else { return }
-        selectedImage = sortedImages[index - 1]
+        let image = sortedImages[index - 1]
+        selectedImage = image
+        selectedImages = [image]
     }
 
     private func selectNextImage() {
         guard let current = selectedImage,
               let index = sortedImages.firstIndex(of: current),
               index < sortedImages.count - 1 else { return }
-        selectedImage = sortedImages[index + 1]
+        let image = sortedImages[index + 1]
+        selectedImage = image
+        selectedImages = [image]
     }
 }
 

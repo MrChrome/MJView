@@ -22,7 +22,7 @@ class ImageLoader {
     var isFilterActive: Bool { tagFilteredImages != nil }
 
     // The URL currently holding an open security-scoped access grant
-    private var accessedURL: URL?
+    var accessedURL: URL?
 
     private static let recentFoldersKey = "recentFolders"
     private static let maxRecentFolders = 5
