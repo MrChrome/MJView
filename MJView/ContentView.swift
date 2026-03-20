@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var thumbnailSize: CGFloat = 80
     @State private var sidebarWidth: CGFloat = 220
     @State private var isTagPanelVisible = true
+    @State private var eventMonitor: Any?
     @AppStorage("sortOrder") private var sortOrderRaw: String = SortOrder.name.rawValue
     private var sortOrder: SortOrder {
         get { SortOrder(rawValue: sortOrderRaw) ?? .name }
@@ -141,7 +142,7 @@ struct ContentView: View {
             if let first = selectedImage { selectedImages = [first] }
         }
         .onAppear {
-            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 if event.keyCode == 123 { // left arrow
                     selectPreviousImage()
                     return nil
@@ -150,6 +151,12 @@ struct ContentView: View {
                     return nil
                 }
                 return event
+            }
+        }
+        .onDisappear {
+            if let monitor = eventMonitor {
+                NSEvent.removeMonitor(monitor)
+                eventMonitor = nil
             }
         }
     }

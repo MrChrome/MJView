@@ -70,10 +70,18 @@ class ImageLoader {
         for data in bookmarks {
             var isStale = false
             guard let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) else { continue }
-            // Re-save stale bookmarks (e.g. volume remounted at new path)
-            let freshData = isStale ? (try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)) : data
-            if let freshData {
-                refreshed.append(freshData)
+
+            if isStale {
+                // Must start security-scoped access before creating a new bookmark
+                let accessed = url.startAccessingSecurityScopedResource()
+                let freshData = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+                if accessed { url.stopAccessingSecurityScopedResource() }
+                if let freshData {
+                    refreshed.append(freshData)
+                    urls.append(url)
+                }
+            } else {
+                refreshed.append(data)
                 urls.append(url)
             }
         }

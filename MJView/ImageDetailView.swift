@@ -7,6 +7,25 @@ import SwiftUI
 import AppKit
 import AVKit
 
+/// Wraps AVPlayerView in an NSViewRepresentable to avoid _AVKit_SwiftUI
+/// type metadata crashes that can occur with the SwiftUI VideoPlayer.
+struct VideoPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .floating
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player {
+            nsView.player = player
+        }
+    }
+}
+
 /// Wraps NSImageView so animated WebP/GIF images play automatically.
 struct AnimatedImageView: NSViewRepresentable {
     let image: NSImage
@@ -43,7 +62,7 @@ struct ImageDetailView: View {
 
                         if imageFile.isVideo {
                             if let player {
-                                VideoPlayer(player: player)
+                                VideoPlayerView(player: player)
                             } else {
                                 ProgressView()
                             }
