@@ -287,7 +287,7 @@ class ImageLoader {
 
         var results: [ImageFile] = []
         for case let fileURL as URL in enumerator {
-            guard matchingPaths.contains(fileURL.path) else { continue }
+            guard matchingPaths.contains(TagDatabase.hashPath(fileURL.path)) else { continue }
             guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey]),
                   resourceValues.isRegularFile == true else { continue }
 

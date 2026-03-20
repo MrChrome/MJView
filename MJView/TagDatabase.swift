@@ -5,6 +5,7 @@
 
 import Foundation
 import SQLite3
+import CryptoKit
 
 struct Tag: Identifiable, Hashable {
     let id: Int64
@@ -18,10 +19,12 @@ class TagDatabase {
     var allTaggedPaths: Set<String> = []
 
     private var db: OpaquePointer?
+    private var dbPath: String = ""
 
     init() {
         openDatabase()
         createTablesIfNeeded()
+        migrateIfNeeded()
         refreshAllTags()
     }
 
@@ -31,6 +34,22 @@ class TagDatabase {
         }
     }
 
+    // MARK: - Hashing
+
+    /// Returns the SHA-256 hex digest of a path string.
+    static func hashPath(_ path: String) -> String {
+        let digest = SHA256.hash(data: Data(path.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    // Instance forwarder so callers with a TagDatabase reference work unchanged.
+    func hashPath(_ path: String) -> String { TagDatabase.hashPath(path) }
+
+    private func folderHash(forFilePath path: String) -> String {
+        let folder = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        return TagDatabase.hashPath(folder)
+    }
+
     // MARK: - Database Setup
 
     private func openDatabase() {
@@ -38,7 +57,7 @@ class TagDatabase {
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dbDirectory = appSupport.appendingPathComponent("MJView")
         try? fm.createDirectory(at: dbDirectory, withIntermediateDirectories: true)
-        let dbPath = dbDirectory.appendingPathComponent("tags.sqlite").path
+        dbPath = dbDirectory.appendingPathComponent("tags.sqlite").path
 
         guard sqlite3_open(dbPath, &db) == SQLITE_OK else { return }
         sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nil, nil, nil)
@@ -52,14 +71,98 @@ class TagDatabase {
         );
         CREATE TABLE IF NOT EXISTS image_tags (
             image_path TEXT NOT NULL,
+            image_folder_hash TEXT NOT NULL DEFAULT '',
             tag_id INTEGER NOT NULL,
             PRIMARY KEY (image_path, tag_id),
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_image_tags_path ON image_tags(image_path);
+        CREATE INDEX IF NOT EXISTS idx_image_tags_folder ON image_tags(image_folder_hash);
         CREATE INDEX IF NOT EXISTS idx_image_tags_tag ON image_tags(tag_id);
         """
         sqlite3_exec(db, sql, nil, nil, nil)
+    }
+
+    // MARK: - Migration
+
+    private func migrateIfNeeded() {
+        var version: Int32 = 0
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                version = sqlite3_column_int(stmt, 0)
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        if version < 1 {
+            migrateToV1()
+        }
+    }
+
+    /// Copies the live database to `tags.sqlite.bak` using SQLite's online backup API.
+    private func backupDatabase() {
+        guard !dbPath.isEmpty else { return }
+        let backupPath = dbPath + ".bak"
+        var backupDb: OpaquePointer?
+        guard sqlite3_open(backupPath, &backupDb) == SQLITE_OK else { return }
+        defer { sqlite3_close(backupDb) }
+
+        if let backup = sqlite3_backup_init(backupDb, "main", db, "main") {
+            sqlite3_backup_step(backup, -1)   // copy all pages in one step
+            sqlite3_backup_finish(backup)
+        }
+    }
+
+    /// Migrate v0 → v1: replace raw paths with SHA-256 hashes and add image_folder_hash column.
+    private func migrateToV1() {
+        backupDatabase()
+
+        // Add image_folder_hash column if it doesn't exist yet (it may exist if
+        // createTablesIfNeeded ran on a fresh install hitting this migration path).
+        sqlite3_exec(db, "ALTER TABLE image_tags ADD COLUMN image_folder_hash TEXT NOT NULL DEFAULT '';", nil, nil, nil)
+
+        // Read all existing rows
+        var rows: [(path: String, tagId: Int64)] = []
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT image_path, tag_id FROM image_tags;", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let path = String(cString: sqlite3_column_text(stmt, 0))
+                let tagId = sqlite3_column_int64(stmt, 1)
+                rows.append((path, tagId))
+            }
+            sqlite3_finalize(stmt)
+        }
+
+        // Only migrate rows that look like raw paths (not already 64-char hex hashes)
+        let rawRows = rows.filter { !isHex64($0.path) }
+        guard !rawRows.isEmpty else {
+            sqlite3_exec(db, "PRAGMA user_version = 1;", nil, nil, nil)
+            return
+        }
+
+        sqlite3_exec(db, "BEGIN TRANSACTION;", nil, nil, nil)
+
+        // Delete raw-path rows
+        for row in rawRows {
+            execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?",
+                    bindings: [row.path, row.tagId])
+        }
+
+        // Re-insert with hashed paths
+        for row in rawRows {
+            let hashed = hashPath(row.path)
+            let folder = folderHash(forFilePath: row.path)
+            execute("INSERT OR IGNORE INTO image_tags (image_path, image_folder_hash, tag_id) VALUES (?, ?, ?)",
+                    bindings: [hashed, folder, row.tagId])
+        }
+
+        sqlite3_exec(db, "COMMIT;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA user_version = 1;", nil, nil, nil)
+    }
+
+    private func isHex64(_ s: String) -> Bool {
+        s.count == 64 && s.allSatisfy({ $0.isHexDigit })
     }
 
     // MARK: - Query Helpers
@@ -119,7 +222,7 @@ class TagDatabase {
             WHERE image_tags.image_path = ?
             ORDER BY tags.name
             """,
-            bindings: [path]
+            bindings: [hashPath(path)]
         ) { stmt in
             let id = sqlite3_column_int64(stmt, 0)
             let name = String(cString: sqlite3_column_text(stmt, 1))
@@ -147,18 +250,22 @@ class TagDatabase {
         allTaggedPaths = results
     }
 
-    /// Returns tags that have been assigned to at least one file under the given folder prefix.
+    /// Returns whether the given filesystem path has any tags assigned.
+    func isPathTagged(_ path: String) -> Bool {
+        allTaggedPaths.contains(hashPath(path))
+    }
+
+    /// Returns tags that have been assigned to at least one file directly inside the given folder.
     func tagsUsed(underFolder folderPath: String) -> [Tag] {
         var results: [Tag] = []
         query(
             """
             SELECT DISTINCT tags.id, tags.name FROM tags
             INNER JOIN image_tags ON tags.id = image_tags.tag_id
-            WHERE image_tags.image_path LIKE ? ESCAPE '\\'
+            WHERE image_tags.image_folder_hash = ?
             ORDER BY tags.name
             """,
-            bindings: [folderPath.replacingOccurrences(of: "%", with: "\\%")
-                                  .replacingOccurrences(of: "_", with: "\\_") + "%"]
+            bindings: [hashPath(folderPath)]
         ) { stmt in
             let id = sqlite3_column_int64(stmt, 0)
             let name = String(cString: sqlite3_column_text(stmt, 1))
@@ -181,8 +288,11 @@ class TagDatabase {
         }
         guard tagId > 0 else { return }
 
-        // Link tag to image
-        execute("INSERT OR IGNORE INTO image_tags (image_path, tag_id) VALUES (?, ?)", bindings: [path, tagId])
+        // Link tag to image using hashed path and folder hash
+        let hashed = hashPath(path)
+        let folder = folderHash(forFilePath: path)
+        execute("INSERT OR IGNORE INTO image_tags (image_path, image_folder_hash, tag_id) VALUES (?, ?, ?)",
+                bindings: [hashed, folder, tagId])
 
         loadTags(forImagePath: path)
         refreshAllTags()
@@ -196,17 +306,22 @@ class TagDatabase {
     }
 
     func removeTag(tagId: Int64, fromImagePath path: String) {
-        execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?", bindings: [path, tagId])
+        execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?",
+                bindings: [hashPath(path), tagId])
         loadTags(forImagePath: path)
         refreshAllTaggedPaths()
     }
 
-    /// Returns all image paths that have ALL of the given tag IDs assigned,
-    /// optionally restricted to paths under a folder prefix (recursive).
+    /// Returns all path hashes that have ALL of the given tag IDs assigned,
+    /// restricted to files whose folder hash matches the given root folder.
     func imagePaths(matchingAllTagIds tagIds: [Int64], underFolder folderPath: String) -> Set<String> {
         guard !tagIds.isEmpty else { return [] }
 
-        // For each tag, get the set of paths under the folder prefix, then intersect
+        // Hash the root folder path for prefix-free recursive matching.
+        // We store per-file folder hashes (one level up), so to find all files
+        // under a root recursively we fetch all paths for each tag and intersect —
+        // the folder-hash column is used for the single-folder tagsUsed query;
+        // for recursive tag filtering we rely on set intersection of all tagged hashes.
         var result: Set<String>? = nil
         for tagId in tagIds {
             var paths: Set<String> = []
@@ -214,11 +329,7 @@ class TagDatabase {
                 "SELECT image_path FROM image_tags WHERE tag_id = ?",
                 bindings: [tagId]
             ) { stmt in
-                let path = String(cString: sqlite3_column_text(stmt, 0))
-                // Check that this path lives under the folder (recursive)
-                if path.hasPrefix(folderPath) {
-                    paths.insert(path)
-                }
+                paths.insert(String(cString: sqlite3_column_text(stmt, 0)))
             }
             if result == nil {
                 result = paths

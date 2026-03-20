@@ -36,7 +36,7 @@ struct ContentView: View {
         case .videos: source = tagSource.filter { $0.isVideo }
         }
         if showUntaggedOnly {
-            source = source.filter { !tagDatabase.allTaggedPaths.contains($0.url.path) }
+            source = source.filter { !tagDatabase.isPathTagged($0.url.path) }
         }
         switch sortOrder {
         case .oldest:           return source.sorted { $0.createdDate < $1.createdDate }

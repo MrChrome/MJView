@@ -98,7 +98,7 @@ struct ThumbnailGridView: View {
         case .videos: sourceImages = tagSource.filter { $0.isVideo }
         }
         if showUntaggedOnly {
-            sourceImages = sourceImages.filter { !taggedPaths.contains($0.url.path) }
+            sourceImages = sourceImages.filter { !taggedPaths.contains(TagDatabase.hashPath($0.url.path)) }
         }
         let hasActiveFilter = tagFilteredImages != nil || fileTypeFilter != .all || showUntaggedOnly
         let folderItems = hasActiveFilter ? [] : subfolders.map { TileItem.folder($0) }
