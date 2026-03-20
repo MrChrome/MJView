@@ -174,15 +174,17 @@ class ImageLoader {
                 isVideo: isVideo
             )
 
-            // Get pixel dimensions (images only)
+            // Get pixel dimensions and animation state (images only)
             if !isVideo,
-               let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
-                if let w = properties[kCGImagePropertyPixelWidth] as? Int,
-                   let h = properties[kCGImagePropertyPixelHeight] as? Int {
-                    imageFile.pixelWidth = w
-                    imageFile.pixelHeight = h
+               let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
+                if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
+                    if let w = properties[kCGImagePropertyPixelWidth] as? Int,
+                       let h = properties[kCGImagePropertyPixelHeight] as? Int {
+                        imageFile.pixelWidth = w
+                        imageFile.pixelHeight = h
+                    }
                 }
+                imageFile.isAnimated = CGImageSourceGetCount(imageSource) > 1
             }
 
             imageResults.append(imageFile)
@@ -214,6 +216,11 @@ class ImageLoader {
         tagFilteredImages = nil
     }
 
+    func removeImage(_ image: ImageFile) {
+        images.removeAll { $0.id == image.id }
+        tagFilteredImages?.removeAll { $0.id == image.id }
+    }
+
     /// Recursively scans all files under a root URL, returning only those whose path is in matchingPaths.
     private static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
         let fm = FileManager.default
@@ -241,10 +248,12 @@ class ImageLoader {
                 isVideo: isVideo
             )
             if !isVideo,
-               let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
-                imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
-                imageFile.pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+               let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
+                if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+                    imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+                    imageFile.pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+                }
+                imageFile.isAnimated = CGImageSourceGetCount(source) > 1
             }
             results.append(imageFile)
         }

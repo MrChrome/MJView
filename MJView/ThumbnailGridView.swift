@@ -30,6 +30,7 @@ struct ThumbnailGridView: View {
     let subfolders: [FolderItem]
     let canGoUp: Bool
     @Binding var selectedImage: ImageFile?
+    @Binding var selectedImages: Set<ImageFile>
     @Binding var thumbnailSize: CGFloat
     let folderPath: String
     var onNavigateToSubfolder: (URL) -> Void = { _ in }
@@ -207,16 +208,46 @@ struct ThumbnailGridView: View {
                         case .folder(let folder):
                             FolderTileView(name: folder.name, size: thumbnailSize)
                                 .contentShape(Rectangle())
-                                .onTapGesture { onNavigateToSubfolder(folder.url) }
+                                .onTapGesture {
+                                    selectedImages = []
+                                    onNavigateToSubfolder(folder.url)
+                                }
                         case .image(let imageFile):
                             ThumbnailView(
                                 imageFile: imageFile,
-                                isSelected: selectedImage == imageFile,
+                                isSelected: selectedImages.contains(imageFile),
                                 size: thumbnailSize
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                selectedImage = imageFile
+                                let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+                                if modifiers.contains(.command) {
+                                    // Cmd+click: toggle this item in the selection
+                                    if selectedImages.contains(imageFile) {
+                                        selectedImages.remove(imageFile)
+                                        if selectedImage == imageFile {
+                                            selectedImage = selectedImages.first
+                                        }
+                                    } else {
+                                        selectedImages.insert(imageFile)
+                                        selectedImage = imageFile
+                                    }
+                                } else if modifiers.contains(.shift), let anchor = selectedImage {
+                                    // Shift+click: select range from anchor to this item
+                                    let imgs = sortedImages
+                                    if let anchorIdx = imgs.firstIndex(of: anchor),
+                                       let targetIdx = imgs.firstIndex(of: imageFile) {
+                                        let range = anchorIdx <= targetIdx
+                                            ? imgs[anchorIdx...targetIdx]
+                                            : imgs[targetIdx...anchorIdx]
+                                        selectedImages = Set(range)
+                                        selectedImage = imageFile
+                                    }
+                                } else {
+                                    // Plain click: single select
+                                    selectedImages = [imageFile]
+                                    selectedImage = imageFile
+                                }
                             }
                         }
                     }

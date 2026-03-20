@@ -137,6 +137,26 @@ class TagDatabase {
         allTags = results
     }
 
+    /// Returns tags that have been assigned to at least one file under the given folder prefix.
+    func tagsUsed(underFolder folderPath: String) -> [Tag] {
+        var results: [Tag] = []
+        query(
+            """
+            SELECT DISTINCT tags.id, tags.name FROM tags
+            INNER JOIN image_tags ON tags.id = image_tags.tag_id
+            WHERE image_tags.image_path LIKE ? ESCAPE '\\'
+            ORDER BY tags.name
+            """,
+            bindings: [folderPath.replacingOccurrences(of: "%", with: "\\%")
+                                  .replacingOccurrences(of: "_", with: "\\_") + "%"]
+        ) { stmt in
+            let id = sqlite3_column_int64(stmt, 0)
+            let name = String(cString: sqlite3_column_text(stmt, 1))
+            results.append(Tag(id: id, name: name))
+        }
+        return results
+    }
+
     func addTag(name: String, toImagePath path: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }

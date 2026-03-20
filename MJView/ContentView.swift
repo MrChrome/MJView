@@ -8,9 +8,11 @@
 import SwiftUI
 
 struct ContentView: View {
+    var appState: AppState
     @State private var loader = ImageLoader()
     @State private var tagDatabase = TagDatabase()
     @State private var selectedImage: ImageFile?
+    @State private var selectedImages: Set<ImageFile> = []
     @State private var thumbnailSize: CGFloat = 80
     @State private var sidebarWidth: CGFloat = 220
     @State private var isTagPanelVisible = true
@@ -45,6 +47,7 @@ struct ContentView: View {
                 subfolders: loader.subfolders,
                 canGoUp: loader.canGoUp,
                 selectedImage: $selectedImage,
+                selectedImages: $selectedImages,
                 thumbnailSize: $thumbnailSize,
                 folderPath: loader.currentFolder?.path ?? "",
                 onNavigateToSubfolder: { loader.navigateToSubfolder($0) },
@@ -72,7 +75,13 @@ struct ContentView: View {
 
             // Tag panel
             if isTagPanelVisible {
-                TagPanelView(imageFile: selectedImage, database: tagDatabase)
+                TagPanelView(
+                    imageFiles: selectedImages.isEmpty
+                        ? (selectedImage.map { [$0] } ?? [])
+                        : selectedImages.sorted { $0.name < $1.name },
+                    database: tagDatabase,
+                    rootFolderPath: loader.rootFolder?.path
+                )
             }
         }
         .toolbar {
@@ -118,9 +127,17 @@ struct ContentView: View {
             )
             .padding(0)
         }
+        .onChange(of: selectedImage) {
+            appState.selectedImage = selectedImage
+        }
+        .onChange(of: appState.deleteTrigger) {
+            deleteSelected()
+        }
         .onChange(of: loader.images) {
             // Select the first file (not folder) in sorted order when a folder loads
+            selectedImages = []
             selectedImage = loader.images.isEmpty ? nil : sortedImages.first
+            if let first = selectedImage { selectedImages = [first] }
         }
         .onAppear {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -134,6 +151,29 @@ struct ContentView: View {
                 return event
             }
         }
+    }
+
+    private func deleteSelected() {
+        print("deleteSelected called, selectedImage: \(selectedImage?.url.lastPathComponent ?? "nil")")
+        guard let image = selectedImage else { return }
+        let sorted = sortedImages
+        // Advance to next, then previous, before deleting
+        if let index = sorted.firstIndex(of: image) {
+            if index + 1 < sorted.count {
+                selectedImage = sorted[index + 1]
+            } else if index > 0 {
+                selectedImage = sorted[index - 1]
+            } else {
+                selectedImage = nil
+            }
+        }
+        do {
+            try FileManager.default.removeItem(at: image.url)
+            print("Deleted: \(image.url.path)")
+        } catch {
+            print("Delete failed: \(error)")
+        }
+        loader.removeImage(image)
     }
 
     private func selectPreviousImage() {
@@ -152,5 +192,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(appState: AppState())
 }

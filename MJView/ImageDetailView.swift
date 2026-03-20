@@ -7,6 +7,27 @@ import SwiftUI
 import AppKit
 import AVKit
 
+/// Wraps NSImageView so animated WebP/GIF images play automatically.
+struct AnimatedImageView: NSViewRepresentable {
+    let image: NSImage
+
+    func makeNSView(context: Context) -> NSImageView {
+        let view = NSImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.animates = true
+        // Prevent the view from driving its parent's size
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSImageView, context: Context) {
+        nsView.image = image
+    }
+}
+
 struct ImageDetailView: View {
     let imageFile: ImageFile?
 
@@ -28,10 +49,20 @@ struct ImageDetailView: View {
                             }
                         } else {
                             if let nsImage {
-                                Image(nsImage: nsImage)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .padding(8)
+                                if imageFile.isAnimated {
+                                    AnimatedImageView(image: nsImage)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .aspectRatio(
+                                            nsImage.size.width / max(nsImage.size.height, 1),
+                                            contentMode: .fit
+                                        )
+                                        .padding(8)
+                                } else {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .padding(8)
+                                }
                             } else {
                                 ProgressView()
                             }
@@ -86,7 +117,8 @@ struct ImageDetailView: View {
 
     private func loadFullImage(url: URL) async -> NSImage? {
         return await Task.detached {
-            NSImage(contentsOf: url)
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return NSImage(data: data)
         }.value
     }
 }

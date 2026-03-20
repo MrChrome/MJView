@@ -6,10 +6,15 @@
 import SwiftUI
 
 struct TagPanelView: View {
-    let imageFile: ImageFile?
+    let imageFiles: [ImageFile]
     var database: TagDatabase
+    var rootFolderPath: String?
 
     @State private var newTagName: String = ""
+
+    // The primary image (last clicked) used for displaying current tags
+    private var primaryImage: ImageFile? { imageFiles.last }
+    private var isMultiSelect: Bool { imageFiles.count > 1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,7 +23,14 @@ struct TagPanelView: View {
                 Text("Tags")
                     .font(.headline)
                 Spacer()
-                if !database.tagsForCurrentImage.isEmpty {
+                if isMultiSelect {
+                    Text("\(imageFiles.count) selected")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.orange.opacity(0.2))
+                        .clipShape(Capsule())
+                } else if !database.tagsForCurrentImage.isEmpty {
                     Text("\(database.tagsForCurrentImage.count)")
                         .font(.caption2)
                         .padding(.horizontal, 6)
@@ -32,15 +44,15 @@ struct TagPanelView: View {
 
             Divider()
 
-            if let imageFile {
-                // Add tag input
+            if primaryImage != nil {
+                // Add tag input — applies to all selected images
                 HStack(spacing: 4) {
-                    TextField("Add tag...", text: $newTagName)
+                    TextField(isMultiSelect ? "Add tag to all..." : "Add tag...", text: $newTagName)
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.small)
-                        .onSubmit { addCurrentTag(to: imageFile) }
+                        .onSubmit { addCurrentTag() }
                     Button {
-                        addCurrentTag(to: imageFile)
+                        addCurrentTag()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
@@ -52,9 +64,18 @@ struct TagPanelView: View {
 
                 Divider()
 
-                // Current image tags
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
+                        if isMultiSelect {
+                            // Multi-select: show tags on primary image with note
+                            Text("Tags on last selected:")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 6)
+                        }
+
+                        // Current image tags (shown for primary)
                         ForEach(database.tagsForCurrentImage) { tag in
                             HStack {
                                 Image(systemName: "tag.fill")
@@ -64,7 +85,10 @@ struct TagPanelView: View {
                                     .font(.system(size: 12))
                                 Spacer()
                                 Button {
-                                    database.removeTag(tagId: tag.id, fromImagePath: imageFile.url.path)
+                                    // Remove from all selected images
+                                    for file in imageFiles {
+                                        database.removeTag(tagId: tag.id, fromImagePath: file.url.path)
+                                    }
                                 } label: {
                                     Image(systemName: "xmark.circle")
                                         .foregroundStyle(.secondary)
@@ -76,21 +100,27 @@ struct TagPanelView: View {
                             .padding(.vertical, 4)
                         }
 
-                        // Quick-add from existing tags
-                        let unusedTags = database.allTags.filter { tag in
-                            !database.tagsForCurrentImage.contains(where: { $0.id == tag.id })
-                        }
-                        if !unusedTags.isEmpty {
+                        // Quick-add from tags used in this folder
+                        let scopedTags: [Tag] = {
+                            let source = rootFolderPath.map { database.tagsUsed(underFolder: $0) } ?? database.allTags
+                            return source.filter { tag in
+                                !database.tagsForCurrentImage.contains(where: { $0.id == tag.id })
+                            }
+                        }()
+                        if !scopedTags.isEmpty {
                             Divider()
                                 .padding(.vertical, 4)
-                            Text("All Tags")
+                            Text("Tags in This Folder")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 12)
                                 .padding(.bottom, 2)
-                            ForEach(unusedTags) { tag in
+                            ForEach(scopedTags) { tag in
                                 Button {
-                                    database.addTag(name: tag.name, toImagePath: imageFile.url.path)
+                                    // Add to all selected images
+                                    for file in imageFiles {
+                                        database.addTag(name: tag.name, toImagePath: file.url.path)
+                                    }
                                 } label: {
                                     HStack {
                                         Image(systemName: "plus.circle")
@@ -98,11 +128,12 @@ struct TagPanelView: View {
                                             .font(.system(size: 10))
                                         Text(tag.name)
                                             .font(.system(size: 12))
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.primary)
                                         Spacer()
                                     }
+                                    .contentShape(Rectangle())
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 3)
+                                    .padding(.vertical, 5)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -123,19 +154,21 @@ struct TagPanelView: View {
             }
         }
         .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
-        .onChange(of: imageFile) {
-            if let imageFile {
-                database.loadTags(forImagePath: imageFile.url.path)
+        .onChange(of: primaryImage) {
+            if let primary = primaryImage {
+                database.loadTags(forImagePath: primary.url.path)
             } else {
                 database.tagsForCurrentImage = []
             }
         }
     }
 
-    private func addCurrentTag(to imageFile: ImageFile) {
+    private func addCurrentTag() {
         let name = newTagName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        database.addTag(name: name, toImagePath: imageFile.url.path)
+        for file in imageFiles {
+            database.addTag(name: name, toImagePath: file.url.path)
+        }
         newTagName = ""
     }
 }
