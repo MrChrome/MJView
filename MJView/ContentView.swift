@@ -63,15 +63,6 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                // File info display
-                if let img = selectedImage {
-                    Text("\(img.name)  \(img.dimensionString)  \(img.fileSizeString)")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
                 Button {
                     loader.needsFolderSelection = true
                 } label: {

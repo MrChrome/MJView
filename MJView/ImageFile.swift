@@ -6,6 +6,17 @@
 import Foundation
 import AppKit
 
+struct FolderItem: Identifiable, Hashable {
+    let id = UUID()
+    let url: URL
+    var name: String { url.lastPathComponent }
+    var createdDate: Date = .distantPast
+    var modifiedDate: Date = .distantPast
+
+    func hash(into hasher: inout Hasher) { hasher.combine(url) }
+    static func == (lhs: FolderItem, rhs: FolderItem) -> Bool { lhs.url == rhs.url }
+}
+
 struct ImageFile: Identifiable, Hashable {
     let id = UUID()
     let url: URL

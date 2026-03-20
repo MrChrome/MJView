@@ -10,7 +10,7 @@ import SwiftUI
 @Observable
 class ImageLoader {
     var images: [ImageFile] = []
-    var subfolders: [URL] = []
+    var subfolders: [FolderItem] = []
     var currentFolder: URL?
     var rootFolder: URL?
     var isLoading = false
@@ -124,7 +124,7 @@ class ImageLoader {
         loadFolder(parent)
     }
 
-    private static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [URL]) {
+    private static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
@@ -133,13 +133,18 @@ class ImageLoader {
         ) else { return ([], []) }
 
         var imageResults: [ImageFile] = []
-        var folderResults: [URL] = []
+        var folderResults: [FolderItem] = []
 
         for case let fileURL as URL in enumerator {
             guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .creationDateKey, .contentModificationDateKey]) else { continue }
 
             if resourceValues.isDirectory == true {
-                folderResults.append(fileURL)
+                let folder = FolderItem(
+                    url: fileURL,
+                    createdDate: resourceValues.creationDate ?? .distantPast,
+                    modifiedDate: resourceValues.contentModificationDate ?? .distantPast
+                )
+                folderResults.append(folder)
                 continue
             }
 
@@ -171,7 +176,7 @@ class ImageLoader {
         }
 
         imageResults.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        folderResults.sort { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        folderResults.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return (imageResults, folderResults)
     }
 

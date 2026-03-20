@@ -27,7 +27,7 @@ enum SortOrder: String, CaseIterable {
 
 struct ThumbnailGridView: View {
     let images: [ImageFile]
-    let subfolders: [URL]
+    let subfolders: [FolderItem]
     let canGoUp: Bool
     @Binding var selectedImage: ImageFile?
     @Binding var thumbnailSize: CGFloat
@@ -37,20 +37,77 @@ struct ThumbnailGridView: View {
 
     @Binding var sortOrder: SortOrder
 
-    var sortedImages: [ImageFile] {
+    // Unified item for the grid so folders and images can be interleaved
+    enum TileItem: Identifiable {
+        case folder(FolderItem)
+        case image(ImageFile)
+
+        var id: String {
+            switch self {
+            case .folder(let f): return "f:" + f.url.path
+            case .image(let img): return "i:" + img.url.path
+            }
+        }
+
+        var sortName: String {
+            switch self {
+            case .folder(let f): return f.name
+            case .image(let img): return img.name
+            }
+        }
+
+        var createdDate: Date {
+            switch self {
+            case .folder(let f): return f.createdDate
+            case .image(let img): return img.createdDate
+            }
+        }
+
+        var modifiedDate: Date {
+            switch self {
+            case .folder(let f): return f.modifiedDate
+            case .image(let img): return img.modifiedDate
+            }
+        }
+    }
+
+    var sortedItems: [TileItem] {
+        let folderItems = subfolders.map { TileItem.folder($0) }
+        let imageItems = images.map { TileItem.image($0) }
+        let combined = folderItems + imageItems
+
         switch sortOrder {
-        case .oldest:           return images.sorted { $0.createdDate < $1.createdDate }
-        case .newest:           return images.sorted { $0.createdDate > $1.createdDate }
-        case .recentlyModified: return images.sorted { $0.modifiedDate > $1.modifiedDate }
-        case .name:             return images.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .size:             return images.sorted { $0.fileSize > $1.fileSize }
-        case .type:             return images.sorted {
-            let ext0 = $0.url.pathExtension.lowercased()
-            let ext1 = $1.url.pathExtension.lowercased()
-            if ext0 == ext1 { return $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            return ext0.localizedStandardCompare(ext1) == .orderedAscending
+        case .name:
+            return combined.sorted { $0.sortName.localizedStandardCompare($1.sortName) == .orderedAscending }
+        case .type:
+            return combined.sorted {
+                let ext0: String
+                let ext1: String
+                switch $0 { case .folder: ext0 = ""; case .image(let i): ext0 = i.url.pathExtension.lowercased() }
+                switch $1 { case .folder: ext1 = ""; case .image(let i): ext1 = i.url.pathExtension.lowercased() }
+                if ext0 == ext1 { return $0.sortName.localizedStandardCompare($1.sortName) == .orderedAscending }
+                return ext0.localizedStandardCompare(ext1) == .orderedAscending
+            }
+        case .oldest:
+            return combined.sorted { $0.createdDate < $1.createdDate }
+        case .newest:
+            return combined.sorted { $0.createdDate > $1.createdDate }
+        case .recentlyModified:
+            return combined.sorted { $0.modifiedDate > $1.modifiedDate }
+        case .size:
+            return combined.sorted {
+                let s0: Int64
+                let s1: Int64
+                switch $0 { case .folder: s0 = 0; case .image(let i): s0 = i.fileSize }
+                switch $1 { case .folder: s1 = 0; case .image(let i): s1 = i.fileSize }
+                return s0 > s1
+            }
         }
-        }
+    }
+
+    // Used by ContentView for arrow-key navigation
+    var sortedImages: [ImageFile] {
+        sortedItems.compactMap { if case .image(let img) = $0 { return img } else { return nil } }
     }
 
     var body: some View {
@@ -98,27 +155,27 @@ struct ThumbnailGridView: View {
                     columns: [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: 4)],
                     spacing: 4
                 ) {
-                    // Back folder tile
+                    // Back folder tile always first
                     if canGoUp {
                         FolderTileView(name: "..", size: thumbnailSize, showBackChevron: true)
                             .onTapGesture { onNavigateUp() }
                     }
 
-                    // Subfolder tiles
-                    ForEach(subfolders, id: \.self) { folder in
-                        FolderTileView(name: folder.lastPathComponent, size: thumbnailSize)
-                            .onTapGesture { onNavigateToSubfolder(folder) }
-                    }
-
-                    // Image thumbnails
-                    ForEach(sortedImages) { imageFile in
-                        ThumbnailView(
-                            imageFile: imageFile,
-                            isSelected: selectedImage == imageFile,
-                            size: thumbnailSize
-                        )
-                        .onTapGesture {
-                            selectedImage = imageFile
+                    // Folders and images interleaved by sort order
+                    ForEach(sortedItems) { (item: TileItem) in
+                        switch item {
+                        case .folder(let folder):
+                            FolderTileView(name: folder.name, size: thumbnailSize)
+                                .onTapGesture { onNavigateToSubfolder(folder.url) }
+                        case .image(let imageFile):
+                            ThumbnailView(
+                                imageFile: imageFile,
+                                isSelected: selectedImage == imageFile,
+                                size: thumbnailSize
+                            )
+                            .onTapGesture {
+                                selectedImage = imageFile
+                            }
                         }
                     }
                 }
