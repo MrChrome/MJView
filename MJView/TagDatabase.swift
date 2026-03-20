@@ -162,4 +162,32 @@ class TagDatabase {
         execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?", bindings: [path, tagId])
         loadTags(forImagePath: path)
     }
+
+    /// Returns all image paths that have ALL of the given tag IDs assigned,
+    /// optionally restricted to paths under a folder prefix (recursive).
+    func imagePaths(matchingAllTagIds tagIds: [Int64], underFolder folderPath: String) -> Set<String> {
+        guard !tagIds.isEmpty else { return [] }
+
+        // For each tag, get the set of paths under the folder prefix, then intersect
+        var result: Set<String>? = nil
+        for tagId in tagIds {
+            var paths: Set<String> = []
+            query(
+                "SELECT image_path FROM image_tags WHERE tag_id = ?",
+                bindings: [tagId]
+            ) { stmt in
+                let path = String(cString: sqlite3_column_text(stmt, 0))
+                // Check that this path lives under the folder (recursive)
+                if path.hasPrefix(folderPath) {
+                    paths.insert(path)
+                }
+            }
+            if result == nil {
+                result = paths
+            } else {
+                result = result!.intersection(paths)
+            }
+        }
+        return result ?? []
+    }
 }

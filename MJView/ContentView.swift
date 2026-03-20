@@ -21,13 +21,14 @@ struct ContentView: View {
     }
 
     private var sortedImages: [ImageFile] {
+        let source = loader.tagFilteredImages ?? loader.images
         switch sortOrder {
-        case .oldest:           return loader.images.sorted { $0.createdDate < $1.createdDate }
-        case .newest:           return loader.images.sorted { $0.createdDate > $1.createdDate }
-        case .recentlyModified: return loader.images.sorted { $0.modifiedDate > $1.modifiedDate }
-        case .name:             return loader.images.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .size:             return loader.images.sorted { $0.fileSize > $1.fileSize }
-        case .type:             return loader.images.sorted {
+        case .oldest:           return source.sorted { $0.createdDate < $1.createdDate }
+        case .newest:           return source.sorted { $0.createdDate > $1.createdDate }
+        case .recentlyModified: return source.sorted { $0.modifiedDate > $1.modifiedDate }
+        case .name:             return source.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .size:             return source.sorted { $0.fileSize > $1.fileSize }
+        case .type:             return source.sorted {
             let ext0 = $0.url.pathExtension.lowercased()
             let ext1 = $1.url.pathExtension.lowercased()
             if ext0 == ext1 { return $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -48,7 +49,20 @@ struct ContentView: View {
                 folderPath: loader.currentFolder?.path ?? "",
                 onNavigateToSubfolder: { loader.navigateToSubfolder($0) },
                 onNavigateUp: { loader.navigateUp() },
-                sortOrder: Binding(get: { sortOrder }, set: { sortOrder = $0 })
+                sortOrder: Binding(get: { sortOrder }, set: { sortOrder = $0 }),
+                allTags: tagDatabase.allTags,
+                tagFilteredImages: loader.tagFilteredImages,
+                onTagFilterChanged: { tagIds in
+                    guard let root = loader.rootFolder else { return }
+                    let paths = tagDatabase.imagePaths(
+                        matchingAllTagIds: Array(tagIds),
+                        underFolder: root.path + "/"
+                    )
+                    loader.applyTagFilter(matchingPaths: paths)
+                },
+                onTagFilterCleared: {
+                    loader.clearTagFilter()
+                }
             )
             .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
 
@@ -105,8 +119,8 @@ struct ContentView: View {
             .padding(0)
         }
         .onChange(of: loader.images) {
-            // Always select first image when folder loads
-            selectedImage = sortedImages.first
+            // Select the first file (not folder) in sorted order when a folder loads
+            selectedImage = loader.images.isEmpty ? nil : sortedImages.first
         }
         .onAppear {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

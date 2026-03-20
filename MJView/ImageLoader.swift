@@ -17,15 +17,25 @@ class ImageLoader {
     var needsFolderSelection = false
     var recentFolders: [URL] = []
 
+    /// When non-nil, the grid shows only these files (tag filter results)
+    var tagFilteredImages: [ImageFile]? = nil
+    var isFilterActive: Bool { tagFilteredImages != nil }
+
     // The URL currently holding an open security-scoped access grant
     private var accessedURL: URL?
 
     private static let recentFoldersKey = "recentFolders"
     private static let maxRecentFolders = 5
 
-    private static let supportedExtensions: Set<String> = [
+    private static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "heic", "heif", "webp", "ico", "icns"
     ]
+    private static let videoExtensions: Set<String> = [
+        "mp4", "mov", "m4v", "avi", "mkv", "flv", "webm", "mpg", "mpeg", "3gp"
+    ]
+    private static var supportedExtensions: Set<String> {
+        imageExtensions.union(videoExtensions)
+    }
 
     /// Whether we can navigate up from the current folder
     var canGoUp: Bool {
@@ -154,16 +164,19 @@ class ImageLoader {
             guard supportedExtensions.contains(ext) else { continue }
 
             let fileSize = Int64(resourceValues.fileSize ?? 0)
+            let isVideo = videoExtensions.contains(ext)
             var imageFile = ImageFile(
                 url: fileURL,
                 name: fileURL.lastPathComponent,
                 fileSize: fileSize,
                 createdDate: resourceValues.creationDate ?? .distantPast,
-                modifiedDate: resourceValues.contentModificationDate ?? .distantPast
+                modifiedDate: resourceValues.contentModificationDate ?? .distantPast,
+                isVideo: isVideo
             )
 
-            // Get pixel dimensions
-            if let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+            // Get pixel dimensions (images only)
+            if !isVideo,
+               let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
                let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
                 if let w = properties[kCGImagePropertyPixelWidth] as? Int,
                    let h = properties[kCGImagePropertyPixelHeight] as? Int {
@@ -178,6 +191,65 @@ class ImageLoader {
         imageResults.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         folderResults.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return (imageResults, folderResults)
+    }
+
+    func applyTagFilter(matchingPaths: Set<String>) {
+        guard let root = rootFolder else { return }
+        isLoading = true
+        tagFilteredImages = nil
+
+        Task.detached { [weak self] in
+            guard let self else { return }
+            let didGainAccess = root.startAccessingSecurityScopedResource()
+            let results = Self.scanAllFiles(under: root, matchingPaths: matchingPaths)
+            if didGainAccess { root.stopAccessingSecurityScopedResource() }
+            await MainActor.run {
+                self.tagFilteredImages = results
+                self.isLoading = false
+            }
+        }
+    }
+
+    func clearTagFilter() {
+        tagFilteredImages = nil
+    }
+
+    /// Recursively scans all files under a root URL, returning only those whose path is in matchingPaths.
+    private static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var results: [ImageFile] = []
+        for case let fileURL as URL in enumerator {
+            guard matchingPaths.contains(fileURL.path) else { continue }
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey]),
+                  resourceValues.isRegularFile == true else { continue }
+
+            let ext = fileURL.pathExtension.lowercased()
+            let isVideo = videoExtensions.contains(ext)
+            let fileSize = Int64(resourceValues.fileSize ?? 0)
+            var imageFile = ImageFile(
+                url: fileURL,
+                name: fileURL.lastPathComponent,
+                fileSize: fileSize,
+                createdDate: resourceValues.creationDate ?? .distantPast,
+                modifiedDate: resourceValues.contentModificationDate ?? .distantPast,
+                isVideo: isVideo
+            )
+            if !isVideo,
+               let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+                imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+                imageFile.pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+            }
+            results.append(imageFile)
+        }
+        results.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return results
     }
 
     func chooseFolder() {

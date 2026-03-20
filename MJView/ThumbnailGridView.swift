@@ -37,6 +37,15 @@ struct ThumbnailGridView: View {
 
     @Binding var sortOrder: SortOrder
 
+    // Tag filtering
+    let allTags: [Tag]
+    let tagFilteredImages: [ImageFile]?
+    let onTagFilterChanged: (Set<Int64>) -> Void
+    let onTagFilterCleared: () -> Void
+
+    @State private var selectedTagIds: Set<Int64> = []
+    @State private var isFilterPopoverShown = false
+
     // Unified item for the grid so folders and images can be interleaved
     enum TileItem: Identifiable {
         case folder(FolderItem)
@@ -72,8 +81,10 @@ struct ThumbnailGridView: View {
     }
 
     var sortedItems: [TileItem] {
-        let folderItems = subfolders.map { TileItem.folder($0) }
-        let imageItems = images.map { TileItem.image($0) }
+        // When a tag filter is active, show only matching files (no subfolders)
+        let sourceImages = tagFilteredImages ?? images
+        let folderItems = tagFilteredImages == nil ? subfolders.map { TileItem.folder($0) } : []
+        let imageItems = sourceImages.map { TileItem.image($0) }
         let combined = folderItems + imageItems
 
         switch sortOrder {
@@ -138,11 +149,39 @@ struct ThumbnailGridView: View {
 
                 Spacer()
 
-                Text(folderPath)
+                // Tag filter button
+                Button {
+                    isFilterPopoverShown.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: tagFilteredImages != nil ? "tag.fill" : "tag")
+                            .foregroundStyle(tagFilteredImages != nil ? .blue : .secondary)
+                        if tagFilteredImages != nil {
+                            Text("\(selectedTagIds.count)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.blue)
+                        }
+                    }
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isFilterPopoverShown, arrowEdge: .bottom) {
+                    TagFilterView(
+                        allTags: allTags,
+                        selectedTagIds: $selectedTagIds,
+                        onApply: {
+                            if selectedTagIds.isEmpty {
+                                onTagFilterCleared()
+                            } else {
+                                onTagFilterChanged(selectedTagIds)
+                            }
+                        },
+                        onClear: {
+                            selectedTagIds = []
+                            onTagFilterCleared()
+                        }
+                    )
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -155,9 +194,10 @@ struct ThumbnailGridView: View {
                     columns: [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: 4)],
                     spacing: 4
                 ) {
-                    // Back folder tile always first
-                    if canGoUp {
+                    // Back folder tile always first (hidden during tag filter)
+                    if canGoUp && tagFilteredImages == nil {
                         FolderTileView(name: "..", size: thumbnailSize, showBackChevron: true)
+                            .contentShape(Rectangle())
                             .onTapGesture { onNavigateUp() }
                     }
 
@@ -166,6 +206,7 @@ struct ThumbnailGridView: View {
                         switch item {
                         case .folder(let folder):
                             FolderTileView(name: folder.name, size: thumbnailSize)
+                                .contentShape(Rectangle())
                                 .onTapGesture { onNavigateToSubfolder(folder.url) }
                         case .image(let imageFile):
                             ThumbnailView(
@@ -173,6 +214,7 @@ struct ThumbnailGridView: View {
                                 isSelected: selectedImage == imageFile,
                                 size: thumbnailSize
                             )
+                            .contentShape(Rectangle())
                             .onTapGesture {
                                 selectedImage = imageFile
                             }

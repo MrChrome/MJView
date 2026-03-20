@@ -26,6 +26,7 @@ struct ImageFile: Identifiable, Hashable {
     var pixelHeight: Int = 0
     var createdDate: Date = .distantPast
     var modifiedDate: Date = .distantPast
+    var isVideo: Bool = false
 
     var fileSizeString: String {
         let formatter = ByteCountFormatter()
