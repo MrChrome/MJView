@@ -156,12 +156,36 @@ struct ContentView: View {
             if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
                 lastSelectedIndex = index
             }
+            // Auto-download cloud-only files when selected
+            if let image = selectedImage, image.isCloudOnly {
+                loader.downloadCloudFile(image)
+            }
+        }
+        .onChange(of: loader.lastDownloadedFileId) {
+            // When a cloud file finishes downloading, refresh the selected image
+            // so the detail view picks up the updated isCloudOnly state.
+            guard let downloadedId = loader.lastDownloadedFileId else { return }
+            if let current = selectedImage, current.id == downloadedId,
+               let updated = loader.images.first(where: { $0.id == downloadedId }) {
+                selectedImage = updated
+            }
+            selectedImages = selectedImages.map { img in
+                if img.id == downloadedId, let updated = loader.images.first(where: { $0.id == downloadedId }) {
+                    return updated
+                }
+                return img
+            }.reduce(into: Set<ImageFile>()) { $0.insert($1) }
         }
         .onChange(of: appState.deleteTrigger) {
             deleteSelected()
         }
-        .onChange(of: loader.images) {
-            // Select the first file (not folder) in sorted order when a folder loads
+        .onChange(of: loader.isLoading) {
+            // When a folder finishes loading, select the first image.
+            // Skip if we still have a valid selection (e.g. a cloud file just updated).
+            guard !loader.isLoading else { return }
+            if let current = selectedImage, loader.images.contains(where: { $0.url == current.url }) {
+                return
+            }
             selectedImages = []
             selectedImage = loader.images.isEmpty ? nil : sortedImages.first
             if let first = selectedImage { selectedImages = [first] }

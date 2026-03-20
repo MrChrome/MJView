@@ -13,7 +13,7 @@ struct ThumbnailView: View {
     let size: CGFloat
 
     var body: some View {
-        AsyncThumbnailImage(url: imageFile.url, isVideo: imageFile.isVideo, size: size)
+        AsyncThumbnailImage(url: imageFile.url, isVideo: imageFile.isVideo, isCloudOnly: imageFile.isCloudOnly, size: size)
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(alignment: .topTrailing) {
@@ -38,13 +38,22 @@ struct ThumbnailView: View {
 struct AsyncThumbnailImage: View {
     let url: URL
     let isVideo: Bool
+    let isCloudOnly: Bool
     let size: CGFloat
 
     @State private var nsImage: NSImage?
 
     var body: some View {
         Group {
-            if let nsImage {
+            if isCloudOnly {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.15))
+                    .overlay {
+                        Image(systemName: "icloud.and.arrow.down")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+            } else if let nsImage {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -57,7 +66,8 @@ struct AsyncThumbnailImage: View {
                     }
             }
         }
-        .task(id: url) {
+        .task(id: "\(url.path)|\(isCloudOnly)") {
+            guard !isCloudOnly else { return }
             if isVideo {
                 nsImage = await Self.loadVideoThumbnail(url: url)
             } else {

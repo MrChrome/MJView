@@ -28,6 +28,8 @@ struct ImageFile: Identifiable, Hashable {
     var modifiedDate: Date = .distantPast
     var isVideo: Bool = false
     var isAnimated: Bool = false
+    /// True when the file is in iCloud but not yet downloaded locally.
+    var isCloudOnly: Bool = false
 
     var fileSizeString: String {
         let formatter = ByteCountFormatter()
@@ -47,6 +49,6 @@ struct ImageFile: Identifiable, Hashable {
     }
 
     static func == (lhs: ImageFile, rhs: ImageFile) -> Bool {
-        lhs.url == rhs.url
+        lhs.url == rhs.url && lhs.isCloudOnly == rhs.isCloudOnly
     }
 }

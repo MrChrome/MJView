@@ -60,7 +60,14 @@ struct ImageDetailView: View {
                     ZStack {
                         Color(nsColor: .controlBackgroundColor)
 
-                        if imageFile.isVideo {
+                        if imageFile.isCloudOnly {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                    .scaleEffect(1.5)
+                                Text("Downloading from iCloud…")
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if imageFile.isVideo {
                             if let player {
                                 VideoPlayerView(player: player)
                             } else {
@@ -93,10 +100,11 @@ struct ImageDetailView: View {
                             }
                         }
                     }
-                    .task(id: imageFile.url) {
+                    .task(id: "\(imageFile.url.path)|\(imageFile.isCloudOnly)") {
                         nsImage = nil
                         player?.pause()
                         player = nil
+                        guard !imageFile.isCloudOnly else { return }
                         if imageFile.isVideo {
                             player = AVPlayer(url: imageFile.url)
                         } else {

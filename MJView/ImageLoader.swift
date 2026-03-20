@@ -21,6 +21,9 @@ class ImageLoader {
     var tagFilteredImages: [ImageFile]? = nil
     var isFilterActive: Bool { tagFilteredImages != nil }
 
+    /// Set after a cloud file finishes downloading, so views can refresh.
+    var lastDownloadedFileId: UUID?
+
     // The URL currently holding an open security-scoped access grant
     var accessedURL: URL?
 
@@ -189,11 +192,21 @@ class ImageLoader {
         }
     }
 
+    /// Check whether a file URL refers to a ubiquitous (iCloud) item that has
+    /// not been downloaded to the local device yet.
+    private static func isCloudOnlyFile(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]) else {
+            return false
+        }
+        guard values.isUbiquitousItem == true else { return false }
+        return values.ubiquitousItemDownloadingStatus != .current
+    }
+
     private static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .creationDateKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .creationDateKey, .contentModificationDateKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else { return ([], []) }
 
@@ -220,17 +233,20 @@ class ImageLoader {
 
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let isVideo = videoExtensions.contains(ext)
+            let cloudOnly = isCloudOnlyFile(fileURL)
             var imageFile = ImageFile(
                 url: fileURL,
                 name: fileURL.lastPathComponent,
                 fileSize: fileSize,
                 createdDate: resourceValues.creationDate ?? .distantPast,
                 modifiedDate: resourceValues.contentModificationDate ?? .distantPast,
-                isVideo: isVideo
+                isVideo: isVideo,
+                isCloudOnly: cloudOnly
             )
 
-            // Get pixel dimensions and animation state (images only)
-            if !isVideo,
+            // Get pixel dimensions and animation state (images only).
+            // Skip for cloud-only files to avoid triggering a download.
+            if !isVideo, !cloudOnly,
                let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
                 if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
                     if let w = properties[kCGImagePropertyPixelWidth] as? Int,
@@ -276,12 +292,71 @@ class ImageLoader {
         tagFilteredImages?.removeAll { $0.id == image.id }
     }
 
+    /// Triggers an iCloud download for a cloud-only file and updates its entry
+    /// once the download completes.
+    func downloadCloudFile(_ image: ImageFile) {
+        guard image.isCloudOnly else { return }
+        let url = image.url
+        do {
+            try FileManager.default.startDownloadingUbiquitousItem(at: url)
+        } catch {
+            print("Failed to start iCloud download: \(error)")
+            return
+        }
+
+        Task.detached { [weak self] in
+            // Poll until the file is downloaded (up to ~60 seconds)
+            for _ in 0..<120 {
+                try? await Task.sleep(for: .milliseconds(500))
+                if !Self.isCloudOnlyFile(url) { break }
+            }
+            guard !Self.isCloudOnlyFile(url) else { return }
+
+            // Re-read metadata now that the file is local
+            let ext = url.pathExtension.lowercased()
+            let isVideo = Self.videoExtensions.contains(ext)
+            var pixelWidth = 0
+            var pixelHeight = 0
+            var isAnimated = false
+            if !isVideo,
+               let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+                if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+                    pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+                    pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+                }
+                isAnimated = CGImageSourceGetCount(source) > 1
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.updateImage(id: image.id, pixelWidth: pixelWidth, pixelHeight: pixelHeight, isAnimated: isAnimated)
+            }
+        }
+    }
+
+    /// Updates an image entry in both `images` and `tagFilteredImages` after download.
+    private func updateImage(id: UUID, pixelWidth: Int, pixelHeight: Int, isAnimated: Bool) {
+        if let idx = images.firstIndex(where: { $0.id == id }) {
+            images[idx].isCloudOnly = false
+            images[idx].pixelWidth = pixelWidth
+            images[idx].pixelHeight = pixelHeight
+            images[idx].isAnimated = isAnimated
+        }
+        if let idx = tagFilteredImages?.firstIndex(where: { $0.id == id }) {
+            tagFilteredImages?[idx].isCloudOnly = false
+            tagFilteredImages?[idx].pixelWidth = pixelWidth
+            tagFilteredImages?[idx].pixelHeight = pixelHeight
+            tagFilteredImages?[idx].isAnimated = isAnimated
+        }
+        lastDownloadedFileId = id
+    }
+
     /// Recursively scans all files under a root URL, returning only those whose path is in matchingPaths.
     private static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey],
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
@@ -294,15 +369,17 @@ class ImageLoader {
             let ext = fileURL.pathExtension.lowercased()
             let isVideo = videoExtensions.contains(ext)
             let fileSize = Int64(resourceValues.fileSize ?? 0)
+            let cloudOnly = isCloudOnlyFile(fileURL)
             var imageFile = ImageFile(
                 url: fileURL,
                 name: fileURL.lastPathComponent,
                 fileSize: fileSize,
                 createdDate: resourceValues.creationDate ?? .distantPast,
                 modifiedDate: resourceValues.contentModificationDate ?? .distantPast,
-                isVideo: isVideo
+                isVideo: isVideo,
+                isCloudOnly: cloudOnly
             )
-            if !isVideo,
+            if !isVideo, !cloudOnly,
                let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
                 if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
                     imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
