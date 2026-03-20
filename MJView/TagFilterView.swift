@@ -15,12 +15,13 @@ struct TagFilterView: View {
     let allTags: [Tag]
     @Binding var selectedTagIds: Set<Int64>
     @Binding var fileTypeFilter: FileTypeFilter
+    @Binding var showUntaggedOnly: Bool
     let onApply: () -> Void
     let onClear: () -> Void
     var onRenameTag: ((Tag) -> Void)?
 
     private var hasActiveFilters: Bool {
-        !selectedTagIds.isEmpty || fileTypeFilter != .all
+        !selectedTagIds.isEmpty || fileTypeFilter != .all || showUntaggedOnly
     }
 
     var body: some View {
@@ -33,6 +34,7 @@ struct TagFilterView: View {
                 if hasActiveFilters {
                     Button("Clear All") {
                         fileTypeFilter = .all
+                        showUntaggedOnly = false
                         onClear()
                     }
                     .font(.caption)
@@ -72,6 +74,29 @@ struct TagFilterView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            Divider()
+
+            // Untagged filter
+            Button {
+                showUntaggedOnly.toggle()
+                onApply()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: showUntaggedOnly ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(showUntaggedOnly ? .blue : .secondary)
+                        .font(.system(size: 14))
+                    Text("Untagged only")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+            .background(showUntaggedOnly ? Color.blue.opacity(0.08) : .clear)
 
             Divider()
 

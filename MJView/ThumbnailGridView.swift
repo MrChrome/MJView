@@ -47,6 +47,8 @@ struct ThumbnailGridView: View {
     let onTagFilterCleared: () -> Void
     var onRenameTag: ((Tag) -> Void)?
     @Binding var fileTypeFilter: FileTypeFilter
+    @Binding var showUntaggedOnly: Bool
+    var taggedPaths: Set<String> = []
 
     @State private var selectedTagIds: Set<Int64> = []
     @State private var isFilterPopoverShown = false
@@ -89,13 +91,17 @@ struct ThumbnailGridView: View {
     var sortedItems: [TileItem] {
         // When a tag filter is active, show only matching files (no subfolders)
         let tagSource = tagFilteredImages ?? images
-        let sourceImages: [ImageFile]
+        var sourceImages: [ImageFile]
         switch fileTypeFilter {
         case .all:    sourceImages = tagSource
         case .images: sourceImages = tagSource.filter { !$0.isVideo }
         case .videos: sourceImages = tagSource.filter { $0.isVideo }
         }
-        let folderItems = (tagFilteredImages == nil && fileTypeFilter == .all) ? subfolders.map { TileItem.folder($0) } : []
+        if showUntaggedOnly {
+            sourceImages = sourceImages.filter { !taggedPaths.contains($0.url.path) }
+        }
+        let hasActiveFilter = tagFilteredImages != nil || fileTypeFilter != .all || showUntaggedOnly
+        let folderItems = hasActiveFilter ? [] : subfolders.map { TileItem.folder($0) }
         let imageItems = sourceImages.map { TileItem.image($0) }
         let combined = folderItems + imageItems
 
@@ -205,6 +211,7 @@ struct ThumbnailGridView: View {
                         allTags: allTags,
                         selectedTagIds: $selectedTagIds,
                         fileTypeFilter: $fileTypeFilter,
+                        showUntaggedOnly: $showUntaggedOnly,
                         onApply: {
                             if selectedTagIds.isEmpty {
                                 onTagFilterCleared()

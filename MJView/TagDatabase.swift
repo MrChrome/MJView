@@ -15,6 +15,7 @@ struct Tag: Identifiable, Hashable {
 class TagDatabase {
     var tagsForCurrentImage: [Tag] = []
     var allTags: [Tag] = []
+    var allTaggedPaths: Set<String> = []
 
     private var db: OpaquePointer?
 
@@ -135,6 +136,15 @@ class TagDatabase {
             results.append(Tag(id: id, name: name))
         }
         allTags = results
+        refreshAllTaggedPaths()
+    }
+
+    private func refreshAllTaggedPaths() {
+        var results: Set<String> = []
+        query("SELECT DISTINCT image_path FROM image_tags") { stmt in
+            results.insert(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        allTaggedPaths = results
     }
 
     /// Returns tags that have been assigned to at least one file under the given folder prefix.
@@ -188,6 +198,7 @@ class TagDatabase {
     func removeTag(tagId: Int64, fromImagePath path: String) {
         execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?", bindings: [path, tagId])
         loadTags(forImagePath: path)
+        refreshAllTaggedPaths()
     }
 
     /// Returns all image paths that have ALL of the given tag IDs assigned,

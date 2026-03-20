@@ -66,66 +66,64 @@ struct TagPanelView: View {
 
                 Divider()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if isMultiSelect {
-                            // Multi-select: show tags on primary image with note
-                            Text("Tags on last selected:")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 12)
-                                .padding(.top, 6)
-                        }
+                // Applied tags — pinned, does not scroll
+                if isMultiSelect {
+                    Text("Tags on last selected:")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
+                }
 
-                        // Current image tags (shown for primary)
-                        ForEach(database.tagsForCurrentImage) { tag in
-                            HStack {
-                                Image(systemName: "tag.fill")
-                                    .foregroundStyle(.blue)
-                                    .font(.system(size: 10))
-                                Text(tag.name)
-                                    .font(.system(size: 12))
-                                Spacer()
-                                Button {
-                                    // Remove from all selected images
-                                    for file in imageFiles {
-                                        database.removeTag(tagId: tag.id, fromImagePath: file.url.path)
-                                    }
-                                } label: {
-                                    Image(systemName: "xmark.circle")
-                                        .foregroundStyle(.secondary)
-                                        .font(.system(size: 11))
-                                }
-                                .buttonStyle(.plain)
+                ForEach(database.tagsForCurrentImage) { tag in
+                    HStack {
+                        Image(systemName: "tag.fill")
+                            .foregroundStyle(.blue)
+                            .font(.system(size: 10))
+                        Text(tag.name)
+                            .font(.system(size: 12))
+                        Spacer()
+                        Button {
+                            for file in imageFiles {
+                                database.removeTag(tagId: tag.id, fromImagePath: file.url.path)
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .contextMenu {
-                                Button("Rename…") {
-                                    renameText = tag.name
-                                    renamingTag = tag
-                                }
-                            }
+                        } label: {
+                            Image(systemName: "xmark.circle")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
                         }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .contextMenu {
+                        Button("Rename…") {
+                            renameText = tag.name
+                            renamingTag = tag
+                        }
+                    }
+                }
 
-                        // Quick-add from tags used in this folder
-                        let scopedTags: [Tag] = {
-                            let source = rootFolderPath.map { database.tagsUsed(underFolder: $0) } ?? database.allTags
-                            return source.filter { tag in
-                                !database.tagsForCurrentImage.contains(where: { $0.id == tag.id })
-                            }
-                        }()
-                        if !scopedTags.isEmpty {
-                            Divider()
-                                .padding(.vertical, 4)
-                            Text("Tags in This Folder")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 2)
+                // Quick-add section — scrollable
+                let scopedTags: [Tag] = {
+                    let source = rootFolderPath.map { database.tagsUsed(underFolder: $0) } ?? database.allTags
+                    return source.filter { tag in
+                        !database.tagsForCurrentImage.contains(where: { $0.id == tag.id })
+                    }
+                }()
+                if !scopedTags.isEmpty {
+                    Divider()
+                        .padding(.top, 4)
+                    Text("Tags in This Folder")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
+                        .padding(.bottom, 2)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
                             ForEach(scopedTags) { tag in
                                 Button {
-                                    // Add to all selected images
                                     for file in imageFiles {
                                         database.addTag(name: tag.name, toImagePath: file.url.path)
                                     }
@@ -152,8 +150,8 @@ struct TagPanelView: View {
                                 }
                             }
                         }
+                        .padding(.bottom, 4)
                     }
-                    .padding(.vertical, 4)
                 }
             } else {
                 VStack {

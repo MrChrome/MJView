@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var renamingTagInFilter: Tag?
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
+    @State private var showUntaggedOnly: Bool = false
     @AppStorage("sortOrder") private var sortOrderRaw: String = SortOrder.name.rawValue
     private var sortOrder: SortOrder {
         get { SortOrder(rawValue: sortOrderRaw) ?? .name }
@@ -28,11 +29,14 @@ struct ContentView: View {
 
     private var sortedImages: [ImageFile] {
         let tagSource = loader.tagFilteredImages ?? loader.images
-        let source: [ImageFile]
+        var source: [ImageFile]
         switch fileTypeFilter {
         case .all:    source = tagSource
         case .images: source = tagSource.filter { !$0.isVideo }
         case .videos: source = tagSource.filter { $0.isVideo }
+        }
+        if showUntaggedOnly {
+            source = source.filter { !tagDatabase.allTaggedPaths.contains($0.url.path) }
         }
         switch sortOrder {
         case .oldest:           return source.sorted { $0.createdDate < $1.createdDate }
@@ -81,7 +85,9 @@ struct ContentView: View {
                     renameFilterText = tag.name
                     renamingTagInFilter = tag
                 },
-                fileTypeFilter: $fileTypeFilter
+                fileTypeFilter: $fileTypeFilter,
+                showUntaggedOnly: $showUntaggedOnly,
+                taggedPaths: tagDatabase.allTaggedPaths
             )
             .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
 
