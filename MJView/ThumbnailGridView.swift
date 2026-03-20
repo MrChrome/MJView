@@ -299,6 +299,7 @@ struct ThumbnailGridView: View {
                 }
             }
             } // ScrollViewReader
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
@@ -316,6 +317,7 @@ struct ThumbnailGridView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

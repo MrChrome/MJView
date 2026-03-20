@@ -94,7 +94,7 @@ struct ContentView: View {
 
             // Main image view
             ImageDetailView(imageFile: selectedImage)
-                .frame(minWidth: 300)
+                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
 
             // Tag panel
             if isTagPanelVisible {
@@ -105,6 +105,7 @@ struct ContentView: View {
                     database: tagDatabase,
                     rootFolderPath: loader.currentFolder?.path
                 )
+                .frame(minWidth: 180, maxHeight: .infinity)
             }
         }
         .toolbar {
@@ -206,11 +207,8 @@ struct ContentView: View {
     }
 
     private func deleteSelected() {
-        print("deleteSelected called, selectedImage: \(selectedImage?.url.lastPathComponent ?? "nil")")
-        print("accessedURL: \(loader.accessedURL?.path ?? "nil")")
         guard let image = selectedImage else { return }
         let sorted = sortedImages
-        // Advance to next, then previous, before deleting
         if let index = sorted.firstIndex(of: image) {
             if index + 1 < sorted.count {
                 selectedImage = sorted[index + 1]
@@ -222,7 +220,6 @@ struct ContentView: View {
         }
         do {
             try FileManager.default.removeItem(at: image.url)
-            print("Deleted: \(image.url.path)")
         } catch {
             print("Delete failed: \(error)")
         }
