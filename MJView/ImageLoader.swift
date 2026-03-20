@@ -24,6 +24,11 @@ class ImageLoader {
     // The URL currently holding an open security-scoped access grant
     var accessedURL: URL?
 
+    // Filesystem watcher for the current folder
+    private var folderWatchSource: DispatchSourceFileSystemObject?
+    private var folderWatchFD: Int32 = -1
+    private var debounceTask: Task<Void, Never>?
+
     private static let recentFoldersKey = "recentFolders"
     private static let maxRecentFolders = 5
 
@@ -112,6 +117,7 @@ class ImageLoader {
         images = []
         subfolders = []
         needsFolderSelection = false
+        startWatching(url)
 
         Task.detached { [weak self] in
             guard let self else { return }
@@ -132,6 +138,47 @@ class ImageLoader {
         guard let current = currentFolder, canGoUp else { return }
         let parent = current.deletingLastPathComponent()
         loadFolder(parent)
+    }
+
+    private func startWatching(_ url: URL) {
+        stopWatching()
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        folderWatchFD = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete, .link],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            self?.scheduleRefresh()
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        folderWatchSource = source
+    }
+
+    private func stopWatching() {
+        folderWatchSource?.cancel()
+        folderWatchSource = nil
+        folderWatchFD = -1
+        debounceTask?.cancel()
+        debounceTask = nil
+    }
+
+    private func scheduleRefresh() {
+        debounceTask?.cancel()
+        debounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let url = self.currentFolder else { return }
+            let (loadedImages, loadedSubfolders) = await Task.detached {
+                Self.scanFolder(url)
+            }.value
+            self.images = loadedImages
+            self.subfolders = loadedSubfolders
+        }
     }
 
     private static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {

@@ -8,14 +8,33 @@
 import SwiftUI
 import AppKit
 
+enum AppearanceMode: String {
+    case system = "System"
+    case light  = "Light"
+    case dark   = "Dark"
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
 @Observable
 class AppState {
     var selectedImage: ImageFile?
     var deleteTrigger: Int = 0
 }
 
-struct EditCommands: Commands {
+struct AppMenuCommands: Commands {
     let appState: AppState
+    @AppStorage("appearanceMode") private var appearanceRaw: String = AppearanceMode.system.rawValue
+
+    private var appearance: AppearanceMode {
+        AppearanceMode(rawValue: appearanceRaw) ?? .system
+    }
 
     var body: some Commands {
         CommandGroup(replacing: .pasteboard) {
@@ -36,21 +55,43 @@ struct EditCommands: Commands {
             }
             .disabled(appState.selectedImage == nil)
         }
+        CommandMenu("View") {
+            Section("Appearance") {
+                ForEach([AppearanceMode.system, .light, .dark], id: \.rawValue) { mode in
+                    Button {
+                        appearanceRaw = mode.rawValue
+                    } label: {
+                        HStack {
+                            Text(mode.rawValue)
+                            if appearance == mode {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @main
 struct MJViewApp: App {
     @State private var appState = AppState()
+    @AppStorage("appearanceMode") private var appearanceRaw: String = AppearanceMode.system.rawValue
+
+    private var appearance: AppearanceMode {
+        AppearanceMode(rawValue: appearanceRaw) ?? .system
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView(appState: appState)
                 .frame(minWidth: 900, minHeight: 500)
+                .preferredColorScheme(appearance.colorScheme)
         }
         .defaultSize(width: 1300, height: 700)
         .commands {
-            EditCommands(appState: appState)
+            AppMenuCommands(appState: appState)
         }
     }
 }

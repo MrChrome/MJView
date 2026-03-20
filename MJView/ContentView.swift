@@ -148,9 +148,6 @@ struct ContentView: View {
                 } else if event.keyCode == 124 { // right arrow
                     selectNextImage()
                     return nil
-                } else if event.keyCode == 51 { // delete/backspace
-                    deleteSelected()
-                    return nil
                 }
                 return event
             }
