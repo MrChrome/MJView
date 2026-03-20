@@ -301,7 +301,27 @@ class TagDatabase {
     func renameTag(tagId: Int64, newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        execute("UPDATE tags SET name = ? WHERE id = ?", bindings: [trimmed, tagId])
+
+        // Check if a tag with the new name already exists (case-insensitive)
+        var existingId: Int64 = 0
+        query("SELECT id FROM tags WHERE name = ? COLLATE NOCASE AND id != ?",
+              bindings: [trimmed, tagId]) { stmt in
+            existingId = sqlite3_column_int64(stmt, 0)
+        }
+
+        if existingId > 0 {
+            // Merge: re-point all image_tags rows from tagId to existingId.
+            // INSERT OR IGNORE skips rows where (image_path, existingId) already exists.
+            execute("""
+                INSERT OR IGNORE INTO image_tags (image_path, image_folder_hash, tag_id)
+                SELECT image_path, image_folder_hash, ? FROM image_tags WHERE tag_id = ?
+                """, bindings: [existingId, tagId])
+            execute("DELETE FROM image_tags WHERE tag_id = ?", bindings: [tagId])
+            execute("DELETE FROM tags WHERE id = ?", bindings: [tagId])
+        } else {
+            execute("UPDATE tags SET name = ? WHERE id = ?", bindings: [trimmed, tagId])
+        }
+
         refreshAllTags()
     }
 

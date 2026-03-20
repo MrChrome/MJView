@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var isTagPanelVisible = true
     @State private var eventMonitor: Any?
     @State private var renamingTagInFilter: Tag?
+    @State private var lastSelectedIndex: Int = 0
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
     @State private var showUntaggedOnly: Bool = false
@@ -102,7 +103,7 @@ struct ContentView: View {
                         ? (selectedImage.map { [$0] } ?? [])
                         : selectedImages.sorted { $0.name < $1.name },
                     database: tagDatabase,
-                    rootFolderPath: loader.rootFolder?.path
+                    rootFolderPath: loader.currentFolder?.path
                 )
             }
         }
@@ -151,6 +152,9 @@ struct ContentView: View {
         }
         .onChange(of: selectedImage) {
             appState.selectedImage = selectedImage
+            if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+                lastSelectedIndex = index
+            }
         }
         .onChange(of: appState.deleteTrigger) {
             deleteSelected()
@@ -160,6 +164,11 @@ struct ContentView: View {
             selectedImages = []
             selectedImage = loader.images.isEmpty ? nil : sortedImages.first
             if let first = selectedImage { selectedImages = [first] }
+        }
+        .onChange(of: tagDatabase.allTaggedPaths) {
+            // When in untagged-only view, don't auto-advance when the current image gets
+            // its first tag — the user may want to add more tags before moving on.
+            // Auto-advance only happens via explicit arrow-key or click navigation.
         }
         .onAppear {
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -221,21 +230,40 @@ struct ContentView: View {
     }
 
     private func selectPreviousImage() {
-        guard let current = selectedImage,
-              let index = sortedImages.firstIndex(of: current),
-              index > 0 else { return }
-        let image = sortedImages[index - 1]
-        selectedImage = image
-        selectedImages = [image]
+        guard !sortedImages.isEmpty else { return }
+        if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+            // Current image is still in the list — move normally
+            guard index > 0 else { return }
+            let image = sortedImages[index - 1]
+            selectedImage = image
+            selectedImages = [image]
+        } else {
+            // Current image was filtered out — lastSelectedIndex now points to the
+            // image that slid into that position, so go one before it
+            let index = min(lastSelectedIndex, sortedImages.count - 1)
+            guard index > 0 else { return }
+            let image = sortedImages[index - 1]
+            selectedImage = image
+            selectedImages = [image]
+        }
     }
 
     private func selectNextImage() {
-        guard let current = selectedImage,
-              let index = sortedImages.firstIndex(of: current),
-              index < sortedImages.count - 1 else { return }
-        let image = sortedImages[index + 1]
-        selectedImage = image
-        selectedImages = [image]
+        guard !sortedImages.isEmpty else { return }
+        if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+            // Current image is still in the list — move normally
+            guard index < sortedImages.count - 1 else { return }
+            let image = sortedImages[index + 1]
+            selectedImage = image
+            selectedImages = [image]
+        } else {
+            // Current image was filtered out — lastSelectedIndex now points to the
+            // image that slid into that position, so go there directly (not +1)
+            let index = min(lastSelectedIndex, sortedImages.count - 1)
+            let image = sortedImages[index]
+            selectedImage = image
+            selectedImages = [image]
+        }
     }
 }
 
