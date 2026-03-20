@@ -57,11 +57,17 @@ struct ImageDetailView: View {
                                             contentMode: .fit
                                         )
                                         .padding(8)
+                                        .onDrag {
+                                            NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                                        }
                                 } else {
                                     Image(nsImage: nsImage)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .padding(8)
+                                        .onDrag {
+                                            NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                                        }
                                 }
                             } else {
                                 ProgressView()

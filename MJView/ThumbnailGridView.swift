@@ -12,15 +12,17 @@ enum SortOrder: String, CaseIterable {
     case name = "Name"
     case size = "Size"
     case type = "Type"
+    case random = "Random"
 
     var systemImage: String {
         switch self {
-        case .oldest:         return "calendar.badge.minus"
-        case .newest:         return "calendar.badge.plus"
+        case .oldest:           return "calendar.badge.minus"
+        case .newest:           return "calendar.badge.plus"
         case .recentlyModified: return "clock.arrow.circlepath"
-        case .name:           return "textformat.abc"
-        case .size:           return "externaldrive"
-        case .type:           return "doc.on.doc"
+        case .name:             return "textformat.abc"
+        case .size:             return "externaldrive"
+        case .type:             return "doc.on.doc"
+        case .random:           return "shuffle"
         }
     }
 }
@@ -46,6 +48,7 @@ struct ThumbnailGridView: View {
 
     @State private var selectedTagIds: Set<Int64> = []
     @State private var isFilterPopoverShown = false
+    @State private var shuffleSeed: UInt64 = 0
 
     // Unified item for the grid so folders and images can be interleaved
     enum TileItem: Identifiable {
@@ -114,6 +117,9 @@ struct ThumbnailGridView: View {
                 switch $1 { case .folder: s1 = 0; case .image(let i): s1 = i.fileSize }
                 return s0 > s1
             }
+        case .random:
+            var rng = SeededRandomNumberGenerator(seed: shuffleSeed)
+            return combined.shuffled(using: &rng)
         }
     }
 
@@ -126,9 +132,29 @@ struct ThumbnailGridView: View {
         VStack(spacing: 0) {
             // Folder path header
             HStack {
+                // Up one folder button
+                if canGoUp && tagFilteredImages == nil {
+                    Button {
+                        onNavigateUp()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Up One Folder")
+                }
+
+                Spacer()
+
+                // Sort menu
                 Menu {
                     ForEach(SortOrder.allCases, id: \.self) { order in
                         Button {
+                            if order == .random {
+                                // Always re-shuffle when Random is picked
+                                shuffleSeed = UInt64.random(in: 0...UInt64.max)
+                            }
                             sortOrder = order
                         } label: {
                             Label(order.rawValue, systemImage: order.systemImage)
@@ -147,8 +173,6 @@ struct ThumbnailGridView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-
-                Spacer()
 
                 // Tag filter button
                 Button {
@@ -195,13 +219,6 @@ struct ThumbnailGridView: View {
                     columns: [GridItem(.adaptive(minimum: thumbnailSize, maximum: thumbnailSize), spacing: 4)],
                     spacing: 4
                 ) {
-                    // Back folder tile always first (hidden during tag filter)
-                    if canGoUp && tagFilteredImages == nil {
-                        FolderTileView(name: "..", size: thumbnailSize, showBackChevron: true)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onNavigateUp() }
-                    }
-
                     // Folders and images interleaved by sort order
                     ForEach(sortedItems) { (item: TileItem) in
                         switch item {
@@ -301,5 +318,22 @@ struct FolderTileView: View {
         .frame(width: size, height: size)
         .background(Color.gray.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// A deterministic RNG seeded with a UInt64, used for stable random sort order.
+struct SeededRandomNumberGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        self.state = seed == 0 ? 1 : seed
+    }
+
+    mutating func next() -> UInt64 {
+        // xorshift64
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
     }
 }

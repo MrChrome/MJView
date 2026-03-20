@@ -16,6 +16,18 @@ struct ThumbnailView: View {
         AsyncThumbnailImage(url: imageFile.url, isVideo: imageFile.isVideo, size: size)
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(alignment: .topTrailing) {
+                if imageFile.isVideo {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.55))
+                        .clipShape(Capsule())
+                        .padding(4)
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
@@ -36,15 +48,6 @@ struct AsyncThumbnailImage: View {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .overlay(alignment: .bottomLeading) {
-                        if isVideo {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: size * 0.22))
-                                .foregroundStyle(.white)
-                                .shadow(radius: 2)
-                                .padding(4)
-                        }
-                    }
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.3))

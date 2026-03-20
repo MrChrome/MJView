@@ -30,6 +30,7 @@ struct ContentView: View {
         case .recentlyModified: return source.sorted { $0.modifiedDate > $1.modifiedDate }
         case .name:             return source.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .size:             return source.sorted { $0.fileSize > $1.fileSize }
+        case .random:           return source
         case .type:             return source.sorted {
             let ext0 = $0.url.pathExtension.lowercased()
             let ext1 = $1.url.pathExtension.lowercased()
