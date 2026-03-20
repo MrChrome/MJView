@@ -178,6 +178,13 @@ class TagDatabase {
         refreshAllTags()
     }
 
+    func renameTag(tagId: Int64, newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        execute("UPDATE tags SET name = ? WHERE id = ?", bindings: [trimmed, tagId])
+        refreshAllTags()
+    }
+
     func removeTag(tagId: Int64, fromImagePath path: String) {
         execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?", bindings: [path, tagId])
         loadTags(forImagePath: path)

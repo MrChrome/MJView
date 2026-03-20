@@ -5,30 +5,86 @@
 
 import SwiftUI
 
+enum FileTypeFilter: String, CaseIterable {
+    case all = "All"
+    case images = "Images"
+    case videos = "Videos"
+}
+
 struct TagFilterView: View {
     let allTags: [Tag]
     @Binding var selectedTagIds: Set<Int64>
+    @Binding var fileTypeFilter: FileTypeFilter
     let onApply: () -> Void
     let onClear: () -> Void
+    var onRenameTag: ((Tag) -> Void)?
+
+    private var hasActiveFilters: Bool {
+        !selectedTagIds.isEmpty || fileTypeFilter != .all
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text("Filter by Tags")
+                Text("Filter")
                     .font(.headline)
                 Spacer()
-                if !selectedTagIds.isEmpty {
-                    Button("Clear", action: onClear)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .buttonStyle(.plain)
+                if hasActiveFilters {
+                    Button("Clear All") {
+                        fileTypeFilter = .all
+                        onClear()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
             Divider()
+
+            // File type filter
+            VStack(alignment: .leading, spacing: 6) {
+                Text("File Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 6) {
+                    ForEach(FileTypeFilter.allCases, id: \.self) { type in
+                        let isSelected = fileTypeFilter == type
+                        Button {
+                            fileTypeFilter = type
+                            onApply()
+                        } label: {
+                            Text(type.rawValue)
+                                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isSelected ? Color.blue.opacity(0.15) : Color.primary.opacity(0.05))
+                                .foregroundStyle(isSelected ? .blue : .primary)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            // Tags section header
+            HStack {
+                Text("Tags")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
 
             if allTags.isEmpty {
                 Text("No tags yet")
@@ -64,6 +120,11 @@ struct TagFilterView: View {
                             }
                             .buttonStyle(.plain)
                             .background(isSelected ? Color.blue.opacity(0.08) : .clear)
+                            .contextMenu {
+                                Button("Rename…") {
+                                    onRenameTag?(tag)
+                                }
+                            }
 
                             if tag.id != allTags.last?.id {
                                 Divider().padding(.leading, 36)

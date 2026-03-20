@@ -45,6 +45,8 @@ struct ThumbnailGridView: View {
     let tagFilteredImages: [ImageFile]?
     let onTagFilterChanged: (Set<Int64>) -> Void
     let onTagFilterCleared: () -> Void
+    var onRenameTag: ((Tag) -> Void)?
+    @Binding var fileTypeFilter: FileTypeFilter
 
     @State private var selectedTagIds: Set<Int64> = []
     @State private var isFilterPopoverShown = false
@@ -86,8 +88,14 @@ struct ThumbnailGridView: View {
 
     var sortedItems: [TileItem] {
         // When a tag filter is active, show only matching files (no subfolders)
-        let sourceImages = tagFilteredImages ?? images
-        let folderItems = tagFilteredImages == nil ? subfolders.map { TileItem.folder($0) } : []
+        let tagSource = tagFilteredImages ?? images
+        let sourceImages: [ImageFile]
+        switch fileTypeFilter {
+        case .all:    sourceImages = tagSource
+        case .images: sourceImages = tagSource.filter { !$0.isVideo }
+        case .videos: sourceImages = tagSource.filter { $0.isVideo }
+        }
+        let folderItems = (tagFilteredImages == nil && fileTypeFilter == .all) ? subfolders.map { TileItem.folder($0) } : []
         let imageItems = sourceImages.map { TileItem.image($0) }
         let combined = folderItems + imageItems
 
@@ -178,11 +186,13 @@ struct ThumbnailGridView: View {
                 Button {
                     isFilterPopoverShown.toggle()
                 } label: {
+                    let hasFilter = tagFilteredImages != nil || fileTypeFilter != .all
                     HStack(spacing: 3) {
-                        Image(systemName: tagFilteredImages != nil ? "tag.fill" : "tag")
-                            .foregroundStyle(tagFilteredImages != nil ? .blue : .secondary)
-                        if tagFilteredImages != nil {
-                            Text("\(selectedTagIds.count)")
+                        Image(systemName: hasFilter ? "tag.fill" : "tag")
+                            .foregroundStyle(hasFilter ? .blue : .secondary)
+                        if hasFilter {
+                            let count = selectedTagIds.count + (fileTypeFilter != .all ? 1 : 0)
+                            Text("\(count)")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.blue)
                         }
@@ -194,6 +204,7 @@ struct ThumbnailGridView: View {
                     TagFilterView(
                         allTags: allTags,
                         selectedTagIds: $selectedTagIds,
+                        fileTypeFilter: $fileTypeFilter,
                         onApply: {
                             if selectedTagIds.isEmpty {
                                 onTagFilterCleared()
@@ -204,7 +215,8 @@ struct ThumbnailGridView: View {
                         onClear: {
                             selectedTagIds = []
                             onTagFilterCleared()
-                        }
+                        },
+                        onRenameTag: onRenameTag
                     )
                 }
             }

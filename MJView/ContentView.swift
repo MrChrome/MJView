@@ -17,6 +17,9 @@ struct ContentView: View {
     @State private var sidebarWidth: CGFloat = 220
     @State private var isTagPanelVisible = true
     @State private var eventMonitor: Any?
+    @State private var renamingTagInFilter: Tag?
+    @State private var renameFilterText: String = ""
+    @State private var fileTypeFilter: FileTypeFilter = .all
     @AppStorage("sortOrder") private var sortOrderRaw: String = SortOrder.name.rawValue
     private var sortOrder: SortOrder {
         get { SortOrder(rawValue: sortOrderRaw) ?? .name }
@@ -24,7 +27,13 @@ struct ContentView: View {
     }
 
     private var sortedImages: [ImageFile] {
-        let source = loader.tagFilteredImages ?? loader.images
+        let tagSource = loader.tagFilteredImages ?? loader.images
+        let source: [ImageFile]
+        switch fileTypeFilter {
+        case .all:    source = tagSource
+        case .images: source = tagSource.filter { !$0.isVideo }
+        case .videos: source = tagSource.filter { $0.isVideo }
+        }
         switch sortOrder {
         case .oldest:           return source.sorted { $0.createdDate < $1.createdDate }
         case .newest:           return source.sorted { $0.createdDate > $1.createdDate }
@@ -67,7 +76,12 @@ struct ContentView: View {
                 },
                 onTagFilterCleared: {
                     loader.clearTagFilter()
-                }
+                },
+                onRenameTag: { tag in
+                    renameFilterText = tag.name
+                    renamingTagInFilter = tag
+                },
+                fileTypeFilter: $fileTypeFilter
             )
             .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
 
@@ -157,6 +171,21 @@ struct ContentView: View {
             if let monitor = eventMonitor {
                 NSEvent.removeMonitor(monitor)
                 eventMonitor = nil
+            }
+        }
+        .alert("Rename Tag", isPresented: Binding(
+            get: { renamingTagInFilter != nil },
+            set: { if !$0 { renamingTagInFilter = nil } }
+        )) {
+            TextField("Tag name", text: $renameFilterText)
+            Button("Rename") {
+                if let tag = renamingTagInFilter {
+                    tagDatabase.renameTag(tagId: tag.id, newName: renameFilterText)
+                }
+                renamingTagInFilter = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingTagInFilter = nil
             }
         }
     }

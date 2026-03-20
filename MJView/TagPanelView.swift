@@ -11,6 +11,8 @@ struct TagPanelView: View {
     var rootFolderPath: String?
 
     @State private var newTagName: String = ""
+    @State private var renamingTag: Tag?
+    @State private var renameText: String = ""
 
     // The primary image (last clicked) used for displaying current tags
     private var primaryImage: ImageFile? { imageFiles.last }
@@ -98,6 +100,12 @@ struct TagPanelView: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 4)
+                            .contextMenu {
+                                Button("Rename…") {
+                                    renameText = tag.name
+                                    renamingTag = tag
+                                }
+                            }
                         }
 
                         // Quick-add from tags used in this folder
@@ -136,6 +144,12 @@ struct TagPanelView: View {
                                     .padding(.vertical, 5)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("Rename…") {
+                                        renameText = tag.name
+                                        renamingTag = tag
+                                    }
+                                }
                             }
                         }
                     }
@@ -154,6 +168,24 @@ struct TagPanelView: View {
             }
         }
         .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
+        .alert("Rename Tag", isPresented: Binding(
+            get: { renamingTag != nil },
+            set: { if !$0 { renamingTag = nil } }
+        )) {
+            TextField("Tag name", text: $renameText)
+            Button("Rename") {
+                if let tag = renamingTag {
+                    database.renameTag(tagId: tag.id, newName: renameText)
+                    if let primary = primaryImage {
+                        database.loadTags(forImagePath: primary.url.path)
+                    }
+                }
+                renamingTag = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingTag = nil
+            }
+        }
         .onChange(of: primaryImage) {
             if let primary = primaryImage {
                 database.loadTags(forImagePath: primary.url.path)
