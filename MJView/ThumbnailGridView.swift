@@ -50,7 +50,7 @@ struct ThumbnailGridView: View {
     @Binding var showUntaggedOnly: Bool
     var taggedPaths: Set<String> = []
 
-    @State private var selectedTagIds: Set<Int64> = []
+    @Binding var selectedTagIds: Set<Int64>
     @State private var isFilterPopoverShown = false
     @State private var shuffleSeed: UInt64 = 0
 

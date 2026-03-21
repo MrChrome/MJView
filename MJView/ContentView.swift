@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
     @State private var showUntaggedOnly: Bool = false
+    @State private var selectedTagIds: Set<Int64> = []
     @AppStorage("sortOrder") private var sortOrderRaw: String = SortOrder.name.rawValue
     private var sortOrder: SortOrder {
         get { SortOrder(rawValue: sortOrderRaw) ?? .name }
@@ -55,42 +56,53 @@ struct ContentView: View {
         }
     }
 
+    private var thumbnailGrid: some View {
+        ThumbnailGridView(
+            images: loader.images,
+            subfolders: loader.subfolders,
+            canGoUp: loader.canGoUp,
+            selectedImage: $selectedImage,
+            selectedImages: $selectedImages,
+            thumbnailSize: $thumbnailSize,
+            folderPath: loader.currentFolder?.path ?? "",
+            onNavigateToSubfolder: { loader.navigateToSubfolder($0) },
+            onNavigateUp: {
+                loader.navigateUp()
+                loader.clearTagFilter()
+                selectedTagIds = []
+                fileTypeFilter = .all
+                showUntaggedOnly = false
+            },
+            sortOrder: Binding(get: { sortOrder }, set: { sortOrder = $0 }),
+            allTags: loader.rootFolder.map { tagDatabase.tagsUsedUnderRoot($0.path) } ?? tagDatabase.allTags,
+            tagFilteredImages: loader.tagFilteredImages,
+            onTagFilterChanged: { tagIds in
+                guard let root = loader.rootFolder else { return }
+                let paths = tagDatabase.imagePaths(
+                    matchingAllTagIds: Array(tagIds),
+                    underFolder: root.path + "/"
+                )
+                loader.applyTagFilter(matchingPaths: paths)
+            },
+            onTagFilterCleared: {
+                loader.clearTagFilter()
+            },
+            onRenameTag: { tag in
+                renameFilterText = tag.name
+                renamingTagInFilter = tag
+            },
+            fileTypeFilter: $fileTypeFilter,
+            showUntaggedOnly: $showUntaggedOnly,
+            taggedPaths: tagDatabase.allTaggedPaths,
+            selectedTagIds: $selectedTagIds
+        )
+        .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
+    }
+
     var body: some View {
         HSplitView {
             // Sidebar with thumbnails
-            ThumbnailGridView(
-                images: loader.images,
-                subfolders: loader.subfolders,
-                canGoUp: loader.canGoUp,
-                selectedImage: $selectedImage,
-                selectedImages: $selectedImages,
-                thumbnailSize: $thumbnailSize,
-                folderPath: loader.currentFolder?.path ?? "",
-                onNavigateToSubfolder: { loader.navigateToSubfolder($0) },
-                onNavigateUp: { loader.navigateUp() },
-                sortOrder: Binding(get: { sortOrder }, set: { sortOrder = $0 }),
-                allTags: loader.rootFolder.map { tagDatabase.tagsUsedUnderRoot($0.path) } ?? tagDatabase.allTags,
-                tagFilteredImages: loader.tagFilteredImages,
-                onTagFilterChanged: { tagIds in
-                    guard let root = loader.rootFolder else { return }
-                    let paths = tagDatabase.imagePaths(
-                        matchingAllTagIds: Array(tagIds),
-                        underFolder: root.path + "/"
-                    )
-                    loader.applyTagFilter(matchingPaths: paths)
-                },
-                onTagFilterCleared: {
-                    loader.clearTagFilter()
-                },
-                onRenameTag: { tag in
-                    renameFilterText = tag.name
-                    renamingTagInFilter = tag
-                },
-                fileTypeFilter: $fileTypeFilter,
-                showUntaggedOnly: $showUntaggedOnly,
-                taggedPaths: tagDatabase.allTaggedPaths
-            )
-            .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
+            thumbnailGrid
 
             // Main image view
             ImageDetailView(imageFile: selectedImage)
