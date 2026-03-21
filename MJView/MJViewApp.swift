@@ -26,6 +26,7 @@ enum AppearanceMode: String {
 class AppState {
     var selectedImage: ImageFile?
     var deleteTrigger: Int = 0
+    var currentFolderName: String = "MJView"
 }
 
 struct AppMenuCommands: Commands {
@@ -88,6 +89,7 @@ struct MJViewApp: App {
             ContentView(appState: appState)
                 .frame(minWidth: 900, minHeight: 500)
                 .preferredColorScheme(appearance.colorScheme)
+                .navigationTitle(appState.currentFolderName)
         }
         .defaultSize(width: 1300, height: 700)
         .commands {

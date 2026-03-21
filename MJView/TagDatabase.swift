@@ -410,6 +410,18 @@ class TagDatabase {
         refreshAllTags()
     }
 
+    /// Re-keys all tag rows from oldPath to newPath. Call this when a file is renamed or moved.
+    func migrateImagePath(from oldPath: String, to newPath: String) {
+        let oldHash = hashPath(oldPath)
+        let newHash = hashPath(newPath)
+        let newFolderHash = folderHash(forFilePath: newPath)
+        execute(
+            "UPDATE image_tags SET image_path = ?, image_folder_hash = ? WHERE image_path = ?",
+            bindings: [newHash, newFolderHash, oldHash]
+        )
+        refreshAllTaggedPaths()
+    }
+
     func removeTag(tagId: Int64, fromImagePath path: String) {
         execute("DELETE FROM image_tags WHERE image_path = ? AND tag_id = ?",
                 bindings: [hashPath(path), tagId])

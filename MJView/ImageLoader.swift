@@ -95,8 +95,10 @@ class ImageLoader {
     }
 
     private func saveRecentFolders() {
-        let bookmarks = recentFolders.compactMap {
-            try? $0.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        let bookmarks: [Data] = recentFolders.compactMap { url in
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            return try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
         }
         UserDefaults.standard.set(bookmarks, forKey: Self.recentFoldersKey)
     }
@@ -290,6 +292,44 @@ class ImageLoader {
     func removeImage(_ image: ImageFile) {
         images.removeAll { $0.id == image.id }
         tagFilteredImages?.removeAll { $0.id == image.id }
+    }
+
+    /// Renames a file on disk and updates the in-memory entries to reflect the new URL/name.
+    /// Returns the updated ImageFile on success, or nil on failure.
+    @discardableResult
+    func renameImage(_ image: ImageFile, newName: String, tagDatabase: TagDatabase) -> ImageFile? {
+        let dir = image.url.deletingLastPathComponent()
+        let newURL = dir.appendingPathComponent(newName)
+        // Migrate tags before the filesystem move so the old path still resolves
+        tagDatabase.migrateImagePath(from: image.url.path, to: newURL.path)
+        do {
+            try FileManager.default.moveItem(at: image.url, to: newURL)
+        } catch {
+            print("Rename failed: \(error)")
+            // Roll back the tag migration
+            tagDatabase.migrateImagePath(from: newURL.path, to: image.url.path)
+            return nil
+        }
+        var updated = image
+        updated = ImageFile(
+            url: newURL,
+            name: newName,
+            fileSize: image.fileSize,
+            createdDate: image.createdDate,
+            modifiedDate: image.modifiedDate,
+            isVideo: image.isVideo,
+            isAnimated: image.isAnimated,
+            isCloudOnly: image.isCloudOnly
+        )
+        updated.pixelWidth = image.pixelWidth
+        updated.pixelHeight = image.pixelHeight
+        if let idx = images.firstIndex(where: { $0.id == image.id }) {
+            images[idx] = updated
+        }
+        if let idx = tagFilteredImages?.firstIndex(where: { $0.id == image.id }) {
+            tagFilteredImages?[idx] = updated
+        }
+        return updated
     }
 
     /// Triggers an iCloud download for a cloud-only file and updates its entry

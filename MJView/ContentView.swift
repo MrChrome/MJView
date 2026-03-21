@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var isTagPanelVisible = true
     @State private var eventMonitor: Any?
     @State private var renamingTagInFilter: Tag?
+    @State private var renamingImage: ImageFile?
+    @State private var renameImageText: String = ""
     @State private var lastSelectedIndex: Int = 0
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
@@ -90,6 +92,10 @@ struct ContentView: View {
             onRenameTag: { tag in
                 renameFilterText = tag.name
                 renamingTagInFilter = tag
+            },
+            onRenameImage: { image in
+                renameImageText = image.name
+                renamingImage = image
             },
             fileTypeFilter: $fileTypeFilter,
             showUntaggedOnly: $showUntaggedOnly,
@@ -202,6 +208,9 @@ struct ContentView: View {
             selectedImage = loader.images.isEmpty ? nil : sortedImages.first
             if let first = selectedImage { selectedImages = [first] }
         }
+        .onChange(of: loader.currentFolder) {
+            appState.currentFolderName = loader.currentFolder?.lastPathComponent ?? "MJView"
+        }
         .onChange(of: loader.rootFolder) {
             if let root = loader.rootFolder {
                 tagDatabase.setRootFolder(root)
@@ -245,6 +254,29 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) {
                 renamingTagInFilter = nil
+            }
+        }
+        .alert("Rename File", isPresented: Binding(
+            get: { renamingImage != nil },
+            set: { if !$0 { renamingImage = nil } }
+        )) {
+            TextField("File name", text: $renameImageText)
+            Button("Rename") {
+                if let image = renamingImage {
+                    if let updated = loader.renameImage(image, newName: renameImageText, tagDatabase: tagDatabase) {
+                        if selectedImage == image {
+                            selectedImage = updated
+                        }
+                        if selectedImages.contains(image) {
+                            selectedImages.remove(image)
+                            selectedImages.insert(updated)
+                        }
+                    }
+                }
+                renamingImage = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingImage = nil
             }
         }
     }

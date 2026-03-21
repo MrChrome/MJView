@@ -46,6 +46,7 @@ struct ThumbnailGridView: View {
     let onTagFilterChanged: (Set<Int64>) -> Void
     let onTagFilterCleared: () -> Void
     var onRenameTag: ((Tag) -> Void)?
+    var onRenameImage: ((ImageFile) -> Void)?
     @Binding var fileTypeFilter: FileTypeFilter
     @Binding var showUntaggedOnly: Bool
     var taggedPaths: Set<String> = []
@@ -255,6 +256,14 @@ struct ThumbnailGridView: View {
                                 isSelected: selectedImages.contains(imageFile),
                                 size: thumbnailSize
                             )
+                            .contextMenu {
+                                Button("Show in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([imageFile.url])
+                                }
+                                Button("Rename…") {
+                                    onRenameImage?(imageFile)
+                                }
+                            }
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 let modifiers = NSApp.currentEvent?.modifierFlags ?? []
