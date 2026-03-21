@@ -20,6 +20,51 @@ class TagDatabase {
 
     private var db: OpaquePointer?
     private var dbPath: String = ""
+    /// Set to the root folder the user opened so tag queries can be scoped to it.
+    var currentRootPath: String = ""
+
+    /// Call this whenever the user opens a root folder. Sets currentRootPath and
+    /// backfills root_folder_hash for any legacy rows whose image_folder_hash
+    /// belongs to a directory under the given root.
+    func setRootFolder(_ rootURL: URL) {
+        currentRootPath = rootURL.path
+        backfillRootHash(for: rootURL)
+    }
+
+    /// Enumerates all directories under rootURL (including rootURL itself),
+    /// hashes their paths, and updates legacy image_tags rows that match.
+    private func backfillRootHash(for rootURL: URL) {
+        let rootHash = TagDatabase.hashPath(rootURL.path)
+
+        // Collect all folder hashes under this root (including root itself)
+        var folderHashes: [String] = [TagDatabase.hashPath(rootURL.path)]
+        let fm = FileManager.default
+        if let enumerator = fm.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                folderHashes.append(TagDatabase.hashPath(url.path))
+            }
+        }
+
+        guard !folderHashes.isEmpty else { return }
+
+        // Batch UPDATE in chunks of 100 to stay within SQLite's variable limit
+        let chunkSize = 100
+        sqlite3_exec(db, "BEGIN TRANSACTION;", nil, nil, nil)
+        for chunk in stride(from: 0, to: folderHashes.count, by: chunkSize) {
+            let batch = Array(folderHashes[chunk..<min(chunk + chunkSize, folderHashes.count)])
+            let placeholders = batch.map { _ in "?" }.joined(separator: ", ")
+            let sql = "UPDATE image_tags SET root_folder_hash = ? WHERE root_folder_hash = '' AND image_folder_hash IN (\(placeholders));"
+            var bindings: [Any] = [rootHash]
+            bindings.append(contentsOf: batch)
+            execute(sql, bindings: bindings)
+        }
+        sqlite3_exec(db, "COMMIT;", nil, nil, nil)
+    }
 
     init() {
         openDatabase()
@@ -72,12 +117,14 @@ class TagDatabase {
         CREATE TABLE IF NOT EXISTS image_tags (
             image_path TEXT NOT NULL,
             image_folder_hash TEXT NOT NULL DEFAULT '',
+            root_folder_hash TEXT NOT NULL DEFAULT '',
             tag_id INTEGER NOT NULL,
             PRIMARY KEY (image_path, tag_id),
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_image_tags_path ON image_tags(image_path);
         CREATE INDEX IF NOT EXISTS idx_image_tags_folder ON image_tags(image_folder_hash);
+        CREATE INDEX IF NOT EXISTS idx_image_tags_root ON image_tags(root_folder_hash);
         CREATE INDEX IF NOT EXISTS idx_image_tags_tag ON image_tags(tag_id);
         """
         sqlite3_exec(db, sql, nil, nil, nil)
@@ -97,6 +144,9 @@ class TagDatabase {
 
         if version < 1 {
             migrateToV1()
+        }
+        if version < 2 {
+            migrateToV2()
         }
     }
 
@@ -159,6 +209,18 @@ class TagDatabase {
 
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA user_version = 1;", nil, nil, nil)
+    }
+
+    /// Migrate v1 → v2: add root_folder_hash column.
+    /// Existing rows get an empty root_folder_hash — they'll be updated the next
+    /// time the user opens a folder and tags an image. This is acceptable because
+    /// the filter will just show all tags for rows with an empty root_folder_hash
+    /// (handled gracefully in tagsUsedInRoot).
+    private func migrateToV2() {
+        backupDatabase()
+        sqlite3_exec(db, "ALTER TABLE image_tags ADD COLUMN root_folder_hash TEXT NOT NULL DEFAULT '';", nil, nil, nil)
+        sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_image_tags_root ON image_tags(root_folder_hash);", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA user_version = 2;", nil, nil, nil)
     }
 
     private func isHex64(_ s: String) -> Bool {
@@ -274,6 +336,28 @@ class TagDatabase {
         return results
     }
 
+    /// Returns tags that have been assigned to at least one file anywhere under the given root folder.
+    /// Legacy rows (migrated before root tracking was added) have an empty root_folder_hash and are
+    /// included in the results so existing tags remain visible after the migration.
+    func tagsUsedUnderRoot(_ rootPath: String) -> [Tag] {
+        let rootHash = TagDatabase.hashPath(rootPath)
+        var results: [Tag] = []
+        query(
+            """
+            SELECT DISTINCT tags.id, tags.name FROM tags
+            INNER JOIN image_tags ON tags.id = image_tags.tag_id
+            WHERE image_tags.root_folder_hash = ? OR image_tags.root_folder_hash = ''
+            ORDER BY tags.name
+            """,
+            bindings: [rootHash]
+        ) { stmt in
+            let id = sqlite3_column_int64(stmt, 0)
+            let name = String(cString: sqlite3_column_text(stmt, 1))
+            results.append(Tag(id: id, name: name))
+        }
+        return results
+    }
+
     func addTag(name: String, toImagePath path: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
@@ -288,11 +372,12 @@ class TagDatabase {
         }
         guard tagId > 0 else { return }
 
-        // Link tag to image using hashed path and folder hash
+        // Link tag to image using hashed path, folder hash, and root folder hash
         let hashed = hashPath(path)
         let folder = folderHash(forFilePath: path)
-        execute("INSERT OR IGNORE INTO image_tags (image_path, image_folder_hash, tag_id) VALUES (?, ?, ?)",
-                bindings: [hashed, folder, tagId])
+        let root = currentRootPath.isEmpty ? "" : TagDatabase.hashPath(currentRootPath)
+        execute("INSERT OR IGNORE INTO image_tags (image_path, image_folder_hash, root_folder_hash, tag_id) VALUES (?, ?, ?, ?)",
+                bindings: [hashed, folder, root, tagId])
 
         loadTags(forImagePath: path)
         refreshAllTags()

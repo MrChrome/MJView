@@ -69,7 +69,7 @@ struct ContentView: View {
                 onNavigateToSubfolder: { loader.navigateToSubfolder($0) },
                 onNavigateUp: { loader.navigateUp() },
                 sortOrder: Binding(get: { sortOrder }, set: { sortOrder = $0 }),
-                allTags: tagDatabase.allTags,
+                allTags: loader.rootFolder.map { tagDatabase.tagsUsedUnderRoot($0.path) } ?? tagDatabase.allTags,
                 tagFilteredImages: loader.tagFilteredImages,
                 onTagFilterChanged: { tagIds in
                     guard let root = loader.rootFolder else { return }
@@ -189,6 +189,13 @@ struct ContentView: View {
             selectedImages = []
             selectedImage = loader.images.isEmpty ? nil : sortedImages.first
             if let first = selectedImage { selectedImages = [first] }
+        }
+        .onChange(of: loader.rootFolder) {
+            if let root = loader.rootFolder {
+                tagDatabase.setRootFolder(root)
+            } else {
+                tagDatabase.currentRootPath = ""
+            }
         }
         .onChange(of: tagDatabase.allTaggedPaths) {
             // When in untagged-only view, don't auto-advance when the current image gets
