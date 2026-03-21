@@ -106,7 +106,7 @@ struct TagPanelView: View {
 
                 // Quick-add section — scrollable
                 let scopedTags: [Tag] = {
-                    let source = rootFolderPath.map { database.tagsUsed(underFolder: $0) } ?? database.allTags
+                    let source = rootFolderPath.map { database.tagsUsedUnderRoot($0) } ?? database.allTags
                     return source.filter { tag in
                         !database.tagsForCurrentImage.contains(where: { $0.id == tag.id })
                     }

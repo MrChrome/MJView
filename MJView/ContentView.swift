@@ -103,7 +103,7 @@ struct ContentView: View {
                         ? (selectedImage.map { [$0] } ?? [])
                         : selectedImages.sorted { $0.name < $1.name },
                     database: tagDatabase,
-                    rootFolderPath: loader.currentFolder?.path
+                    rootFolderPath: loader.rootFolder?.path
                 )
                 .frame(minWidth: 180, maxHeight: .infinity)
             }

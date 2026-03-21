@@ -80,6 +80,7 @@ struct TagFilterView: View {
             // Untagged filter
             Button {
                 showUntaggedOnly.toggle()
+                if showUntaggedOnly { selectedTagIds = [] }
                 onApply()
             } label: {
                 HStack(spacing: 8) {
@@ -127,6 +128,7 @@ struct TagFilterView: View {
                                     selectedTagIds.remove(tag.id)
                                 } else {
                                     selectedTagIds.insert(tag.id)
+                                    showUntaggedOnly = false
                                 }
                                 onApply()
                             } label: {
