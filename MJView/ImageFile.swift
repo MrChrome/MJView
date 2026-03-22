@@ -6,10 +6,10 @@
 import Foundation
 import AppKit
 
-struct FolderItem: Identifiable, Hashable {
+nonisolated struct FolderItem: Identifiable, Hashable {
     let id = UUID()
     let url: URL
-    nonisolated var name: String { url.lastPathComponent }
+    var name: String { url.lastPathComponent }
     var createdDate: Date = .distantPast
     var modifiedDate: Date = .distantPast
 
@@ -17,7 +17,7 @@ struct FolderItem: Identifiable, Hashable {
     static func == (lhs: FolderItem, rhs: FolderItem) -> Bool { lhs.url == rhs.url }
 }
 
-struct ImageFile: Identifiable, Hashable {
+nonisolated struct ImageFile: Identifiable, Hashable {
     let id = UUID()
     let url: URL
     let name: String
