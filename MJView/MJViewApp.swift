@@ -26,6 +26,7 @@ enum AppearanceMode: String {
 class AppState {
     var selectedImage: ImageFile?
     var deleteTrigger: Int = 0
+    var cropTrigger: Int = 0
     var currentFolderName: String = "MJView"
 }
 
@@ -51,6 +52,14 @@ struct AppMenuCommands: Commands {
         }
         CommandGroup(after: .pasteboard) {
             Divider()
+            Button("Crop") {
+                appState.cropTrigger += 1
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .disabled(appState.selectedImage == nil
+                      || appState.selectedImage?.isVideo == true
+                      || appState.selectedImage?.isAnimated == true
+                      || appState.selectedImage?.isCloudOnly == true)
             Button("Delete") {
                 appState.deleteTrigger += 1
             }

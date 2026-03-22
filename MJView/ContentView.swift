@@ -16,10 +16,12 @@ struct ContentView: View {
     @State private var thumbnailSize: CGFloat = 80
     @State private var sidebarWidth: CGFloat = 220
     @State private var isTagPanelVisible = true
-    @State private var eventMonitor: Any?
+    @State private var isCropping: Bool = false
+    @State private var pendingSelectURL: URL?
     @State private var renamingTagInFilter: Tag?
     @State private var renamingImage: ImageFile?
     @State private var renameImageText: String = ""
+    @State private var deletingImage: ImageFile?
     @State private var lastSelectedIndex: Int = 0
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
@@ -56,6 +58,22 @@ struct ContentView: View {
             return ext0.localizedStandardCompare(ext1) == .orderedAscending
         }
         }
+    }
+
+    private var imageDetailView: some View {
+        ImageDetailView(
+            imageFile: selectedImage,
+            isCropping: $isCropping,
+            onCropCompleted: { savedURL, mode in
+                handleCropCompleted(savedURL: savedURL, mode: mode)
+            }
+        )
+        .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var canCrop: Bool {
+        guard let img = selectedImage else { return false }
+        return !img.isVideo && !img.isAnimated && !img.isCloudOnly
     }
 
     private var thumbnailGrid: some View {
@@ -97,6 +115,9 @@ struct ContentView: View {
                 renameImageText = image.name
                 renamingImage = image
             },
+            onDeleteImage: { image in
+                deletingImage = image
+            },
             fileTypeFilter: $fileTypeFilter,
             showUntaggedOnly: $showUntaggedOnly,
             taggedPaths: tagDatabase.allTaggedPaths,
@@ -111,8 +132,7 @@ struct ContentView: View {
             thumbnailGrid
 
             // Main image view
-            ImageDetailView(imageFile: selectedImage)
-                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+            imageDetailView
 
             // Tag panel
             if isTagPanelVisible {
@@ -144,6 +164,14 @@ struct ContentView: View {
                 }
                 .help("Reveal in Finder")
                 .disabled(selectedImage == nil)
+
+                Button {
+                    isCropping.toggle()
+                } label: {
+                    Image(systemName: isCropping ? "crop.rotate" : "crop")
+                }
+                .help(isCropping ? "Cancel Crop" : "Crop Image")
+                .disabled(!canCrop)
 
                 Button {
                     isTagPanelVisible.toggle()
@@ -223,76 +251,80 @@ struct ContentView: View {
             // its first tag — the user may want to add more tags before moving on.
             // Auto-advance only happens via explicit arrow-key or click navigation.
         }
-        .onAppear {
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 123 { // left arrow
-                    selectPreviousImage()
-                    return nil
-                } else if event.keyCode == 124 { // right arrow
-                    selectNextImage()
-                    return nil
-                }
-                return event
+        .modifier(CropAndLifecycleModifier(
+            isCropping: $isCropping,
+            pendingSelectURL: $pendingSelectURL,
+            selectedImage: $selectedImage,
+            selectedImages: $selectedImages,
+            loaderImages: loader.images,
+            cropTrigger: appState.cropTrigger,
+            onSelectPrevious: selectPreviousImage,
+            onSelectNext: selectNextImage
+        ))
+        .modifier(RenameModifier(
+            renamingTagInFilter: $renamingTagInFilter,
+            renameFilterText: $renameFilterText,
+            renamingImage: $renamingImage,
+            renameImageText: $renameImageText,
+            selectedImage: $selectedImage,
+            selectedImages: $selectedImages,
+            onRenameTag: { tag, newName in tagDatabase.renameTag(tagId: tag.id, newName: newName) },
+            onRenameImage: { image, newName in
+                loader.renameImage(image, newName: newName, tagDatabase: tagDatabase)
             }
-        }
-        .onDisappear {
-            if let monitor = eventMonitor {
-                NSEvent.removeMonitor(monitor)
-                eventMonitor = nil
-            }
-        }
-        .alert("Rename Tag", isPresented: Binding(
-            get: { renamingTagInFilter != nil },
-            set: { if !$0 { renamingTagInFilter = nil } }
-        )) {
-            TextField("Tag name", text: $renameFilterText)
-            Button("Rename") {
-                if let tag = renamingTagInFilter {
-                    tagDatabase.renameTag(tagId: tag.id, newName: renameFilterText)
+        ))
+        .alert("Delete \"\(deletingImage?.name ?? "")\"?",
+               isPresented: Binding(
+                get: { deletingImage != nil },
+                set: { if !$0 { deletingImage = nil } }
+               )) {
+            Button("Delete", role: .destructive) {
+                if let image = deletingImage {
+                    deletingImage = nil
+                    deleteImage(image)
                 }
-                renamingTagInFilter = nil
             }
             Button("Cancel", role: .cancel) {
-                renamingTagInFilter = nil
+                deletingImage = nil
             }
+        } message: {
+            Text("This will permanently delete the file from disk.")
         }
-        .alert("Rename File", isPresented: Binding(
-            get: { renamingImage != nil },
-            set: { if !$0 { renamingImage = nil } }
-        )) {
-            TextField("File name", text: $renameImageText)
-            Button("Rename") {
-                if let image = renamingImage {
-                    if let updated = loader.renameImage(image, newName: renameImageText, tagDatabase: tagDatabase) {
-                        if selectedImage == image {
-                            selectedImage = updated
-                        }
-                        if selectedImages.contains(image) {
-                            selectedImages.remove(image)
-                            selectedImages.insert(updated)
-                        }
-                    }
-                }
-                renamingImage = nil
-            }
-            Button("Cancel", role: .cancel) {
-                renamingImage = nil
-            }
+    }
+
+    private func handleCropCompleted(savedURL: URL, mode: CropSaveMode) {
+        switch mode {
+        case .overwrite:
+            // The detail view already increments reloadCounter to reload the image.
+            // Nothing else needed here.
+            break
+        case .saveAsNew:
+            // Store the URL; once the filesystem watcher picks up the new file and
+            // adds it to loader.images, the onChange handler will auto-select it.
+            pendingSelectURL = savedURL
         }
     }
 
     private func deleteSelected() {
         guard let image = selectedImage else { return }
-        let sorted = sortedImages
-        if let index = sorted.firstIndex(of: image) {
-            if index + 1 < sorted.count {
-                selectedImage = sorted[index + 1]
-            } else if index > 0 {
-                selectedImage = sorted[index - 1]
-            } else {
-                selectedImage = nil
+        deleteImage(image)
+    }
+
+    private func deleteImage(_ image: ImageFile) {
+        // Advance selection away from the deleted image if it is currently selected
+        if selectedImage == image {
+            let sorted = sortedImages
+            if let index = sorted.firstIndex(of: image) {
+                if index + 1 < sorted.count {
+                    selectedImage = sorted[index + 1]
+                } else if index > 0 {
+                    selectedImage = sorted[index - 1]
+                } else {
+                    selectedImage = nil
+                }
             }
         }
+        selectedImages.remove(image)
         do {
             try FileManager.default.removeItem(at: image.url)
         } catch {
@@ -336,6 +368,113 @@ struct ContentView: View {
             selectedImage = image
             selectedImages = [image]
         }
+    }
+}
+
+// MARK: - View Modifiers extracted to keep ContentView.body type-checkable
+
+private struct CropAndLifecycleModifier: ViewModifier {
+    @Binding var isCropping: Bool
+    @Binding var pendingSelectURL: URL?
+    @Binding var selectedImage: ImageFile?
+    @Binding var selectedImages: Set<ImageFile>
+    let loaderImages: [ImageFile]
+    let cropTrigger: Int
+    let onSelectPrevious: () -> Void
+    let onSelectNext: () -> Void
+
+    @State private var eventMonitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: loaderImages) {
+                guard let pending = pendingSelectURL,
+                      let newImage = loaderImages.first(where: { $0.url == pending }) else { return }
+                selectedImage = newImage
+                selectedImages = [newImage]
+                pendingSelectURL = nil
+            }
+            .onChange(of: cropTrigger) {
+                guard let img = selectedImage,
+                      !img.isVideo, !img.isAnimated, !img.isCloudOnly else { return }
+                isCropping.toggle()
+            }
+            .onAppear {
+                eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if isCropping {
+                        if event.keyCode == 53 { // Escape
+                            isCropping = false
+                            return nil
+                        }
+                        return event // block other navigation while cropping
+                    }
+                    if event.keyCode == 123 { // left arrow
+                        onSelectPrevious()
+                        return nil
+                    } else if event.keyCode == 124 { // right arrow
+                        onSelectNext()
+                        return nil
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor = eventMonitor {
+                    NSEvent.removeMonitor(monitor)
+                    eventMonitor = nil
+                }
+            }
+    }
+}
+
+private struct RenameModifier: ViewModifier {
+    @Binding var renamingTagInFilter: Tag?
+    @Binding var renameFilterText: String
+    @Binding var renamingImage: ImageFile?
+    @Binding var renameImageText: String
+    @Binding var selectedImage: ImageFile?
+    @Binding var selectedImages: Set<ImageFile>
+    let onRenameTag: (Tag, String) -> Void
+    let onRenameImage: (ImageFile, String) -> ImageFile?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Rename Tag", isPresented: Binding(
+                get: { renamingTagInFilter != nil },
+                set: { if !$0 { renamingTagInFilter = nil } }
+            )) {
+                TextField("Tag name", text: $renameFilterText)
+                Button("Rename") {
+                    if let tag = renamingTagInFilter {
+                        onRenameTag(tag, renameFilterText)
+                    }
+                    renamingTagInFilter = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    renamingTagInFilter = nil
+                }
+            }
+            .alert("Rename File", isPresented: Binding(
+                get: { renamingImage != nil },
+                set: { if !$0 { renamingImage = nil } }
+            )) {
+                TextField("File name", text: $renameImageText)
+                Button("Rename") {
+                    if let image = renamingImage {
+                        if let updated = onRenameImage(image, renameImageText) {
+                            if selectedImage == image { selectedImage = updated }
+                            if selectedImages.contains(image) {
+                                selectedImages.remove(image)
+                                selectedImages.insert(updated)
+                            }
+                        }
+                    }
+                    renamingImage = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    renamingImage = nil
+                }
+            }
     }
 }
 

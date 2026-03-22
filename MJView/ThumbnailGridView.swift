@@ -47,6 +47,7 @@ struct ThumbnailGridView: View {
     let onTagFilterCleared: () -> Void
     var onRenameTag: ((Tag) -> Void)?
     var onRenameImage: ((ImageFile) -> Void)?
+    var onDeleteImage: ((ImageFile) -> Void)?
     @Binding var fileTypeFilter: FileTypeFilter
     @Binding var showUntaggedOnly: Bool
     var taggedPaths: Set<String> = []
@@ -262,6 +263,10 @@ struct ThumbnailGridView: View {
                                 }
                                 Button("Rename…") {
                                     onRenameImage?(imageFile)
+                                }
+                                Divider()
+                                Button("Delete", role: .destructive) {
+                                    onDeleteImage?(imageFile)
                                 }
                             }
                             .contentShape(Rectangle())
