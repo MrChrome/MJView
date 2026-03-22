@@ -9,7 +9,7 @@ import AppKit
 struct FolderItem: Identifiable, Hashable {
     let id = UUID()
     let url: URL
-    var name: String { url.lastPathComponent }
+    nonisolated var name: String { url.lastPathComponent }
     var createdDate: Date = .distantPast
     var modifiedDate: Date = .distantPast
 

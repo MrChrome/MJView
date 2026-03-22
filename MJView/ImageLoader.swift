@@ -35,13 +35,13 @@ class ImageLoader {
     private static let recentFoldersKey = "recentFolders"
     private static let maxRecentFolders = 5
 
-    private static let imageExtensions: Set<String> = [
+    private nonisolated static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "heic", "heif", "webp", "ico", "icns"
     ]
-    private static let videoExtensions: Set<String> = [
+    private nonisolated static let videoExtensions: Set<String> = [
         "mp4", "mov", "m4v", "avi", "mkv", "flv", "webm", "mpg", "mpeg", "3gp"
     ]
-    private static var supportedExtensions: Set<String> {
+    private nonisolated static var supportedExtensions: Set<String> {
         imageExtensions.union(videoExtensions)
     }
 
@@ -196,7 +196,7 @@ class ImageLoader {
 
     /// Check whether a file URL refers to a ubiquitous (iCloud) item that has
     /// not been downloaded to the local device yet.
-    private static func isCloudOnlyFile(_ url: URL) -> Bool {
+    private nonisolated static func isCloudOnlyFile(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]) else {
             return false
         }
@@ -204,7 +204,7 @@ class ImageLoader {
         return values.ubiquitousItemDownloadingStatus != .current
     }
 
-    private static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {
+    private nonisolated static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
@@ -367,9 +367,12 @@ class ImageLoader {
                 isAnimated = CGImageSourceGetCount(source) > 1
             }
 
+            let finalWidth = pixelWidth
+            let finalHeight = pixelHeight
+            let finalAnimated = isAnimated
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                self.updateImage(id: image.id, pixelWidth: pixelWidth, pixelHeight: pixelHeight, isAnimated: isAnimated)
+                self.updateImage(id: image.id, pixelWidth: finalWidth, pixelHeight: finalHeight, isAnimated: finalAnimated)
             }
         }
     }
@@ -392,7 +395,7 @@ class ImageLoader {
     }
 
     /// Recursively scans all files under a root URL, returning only those whose path is in matchingPaths.
-    private static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
+    private nonisolated static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,

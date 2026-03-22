@@ -82,7 +82,7 @@ class TagDatabase {
     // MARK: - Hashing
 
     /// Returns the SHA-256 hex digest of a path string.
-    static func hashPath(_ path: String) -> String {
+    nonisolated static func hashPath(_ path: String) -> String {
         let digest = SHA256.hash(data: Data(path.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
