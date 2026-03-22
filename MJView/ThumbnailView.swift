@@ -6,6 +6,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import QuickLookThumbnailing
 
 struct ThumbnailView: View {
     let imageFile: ImageFile
@@ -19,6 +20,18 @@ struct ThumbnailView: View {
             .overlay(alignment: .topTrailing) {
                 if imageFile.isVideo {
                     Image(systemName: "video.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.55))
+                        .clipShape(Capsule())
+                        .padding(4)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if imageFile.isCloudOnly {
+                    Image(systemName: "icloud.and.arrow.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 4)
@@ -45,18 +58,17 @@ struct AsyncThumbnailImage: View {
 
     var body: some View {
         Group {
-            if isCloudOnly {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.15))
-                    .overlay {
-                        Image(systemName: "icloud.and.arrow.down")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                    }
-            } else if let nsImage {
+            if let nsImage {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+            } else if isCloudOnly {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.15))
+                    .overlay {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    }
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.3))
@@ -67,12 +79,29 @@ struct AsyncThumbnailImage: View {
             }
         }
         .task(id: "\(url.path)|\(isCloudOnly)") {
-            guard !isCloudOnly else { return }
-            if isVideo {
+            if isCloudOnly {
+                nsImage = await Self.loadQLThumbnail(url: url, size: size)
+            } else if isVideo {
                 nsImage = await Self.loadVideoThumbnail(url: url)
             } else {
                 nsImage = await Self.loadImageThumbnail(url: url, size: size)
             }
+        }
+    }
+
+    private static func loadQLThumbnail(url: URL, size: CGFloat) async -> NSImage? {
+        let pixelSize = size * 2
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: pixelSize, height: pixelSize),
+            scale: 1.0,
+            representationTypes: .all
+        )
+        do {
+            let representation = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
+            return representation.nsImage
+        } catch {
+            return nil
         }
     }
 
