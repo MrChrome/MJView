@@ -336,17 +336,17 @@ struct ContentView: View {
     private func selectPreviousImage() {
         guard !sortedImages.isEmpty else { return }
         if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
-            // Current image is still in the list — move normally
-            guard index > 0 else { return }
-            let image = sortedImages[index - 1]
+            // Current image is still in the list — wrap around to last if at the beginning
+            let prevIndex = index > 0 ? index - 1 : sortedImages.count - 1
+            let image = sortedImages[prevIndex]
             selectedImage = image
             selectedImages = [image]
         } else {
             // Current image was filtered out — lastSelectedIndex now points to the
             // image that slid into that position, so go one before it
             let index = min(lastSelectedIndex, sortedImages.count - 1)
-            guard index > 0 else { return }
-            let image = sortedImages[index - 1]
+            let prevIndex = index > 0 ? index - 1 : sortedImages.count - 1
+            let image = sortedImages[prevIndex]
             selectedImage = image
             selectedImages = [image]
         }
@@ -355,9 +355,9 @@ struct ContentView: View {
     private func selectNextImage() {
         guard !sortedImages.isEmpty else { return }
         if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
-            // Current image is still in the list — move normally
-            guard index < sortedImages.count - 1 else { return }
-            let image = sortedImages[index + 1]
+            // Current image is still in the list — wrap around to first if at the end
+            let nextIndex = index < sortedImages.count - 1 ? index + 1 : 0
+            let image = sortedImages[nextIndex]
             selectedImage = image
             selectedImages = [image]
         } else {
