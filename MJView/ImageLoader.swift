@@ -35,6 +35,19 @@ class ImageLoader {
     private static let recentFoldersKey = "recentFolders"
     private static let maxRecentFolders = 5
 
+    /// Returns true if the image source contains an animation (multi-frame GIF/APNG/WebP).
+    private nonisolated static func isAnimatedImageSource(_ source: CGImageSource) -> Bool {
+        if CGImageSourceGetCount(source) > 1 { return true }
+        // Animated WebP files sometimes report a frame count of 1 via CGImageSourceGetCount.
+        // Check the WebP container properties for a frame info array instead.
+        if let props = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
+           let webp = props[kCGImagePropertyWebPDictionary] as? [CFString: Any],
+           let frames = webp[kCGImagePropertyWebPFrameInfoArray] as? [Any] {
+            return frames.count > 1
+        }
+        return false
+    }
+
     private nonisolated static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "heic", "heif", "webp", "ico", "icns"
     ]
@@ -257,7 +270,7 @@ class ImageLoader {
                         imageFile.pixelHeight = h
                     }
                 }
-                imageFile.isAnimated = CGImageSourceGetCount(imageSource) > 1
+                imageFile.isAnimated = isAnimatedImageSource(imageSource)
             }
 
             imageResults.append(imageFile)
@@ -364,7 +377,7 @@ class ImageLoader {
                     pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
                     pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
                 }
-                isAnimated = CGImageSourceGetCount(source) > 1
+                isAnimated = Self.isAnimatedImageSource(source)
             }
 
             let finalWidth = pixelWidth
@@ -428,7 +441,7 @@ class ImageLoader {
                     imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
                     imageFile.pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
                 }
-                imageFile.isAnimated = CGImageSourceGetCount(source) > 1
+                imageFile.isAnimated = isAnimatedImageSource(source)
             }
             results.append(imageFile)
         }

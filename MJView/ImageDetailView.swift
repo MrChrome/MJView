@@ -6,6 +6,7 @@
 import SwiftUI
 import AppKit
 import AVKit
+import ImageIO
 
 /// Wraps AVPlayerView in an NSViewRepresentable to avoid _AVKit_SwiftUI
 /// type metadata crashes that can occur with the SwiftUI VideoPlayer.
@@ -26,7 +27,125 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 }
 
-/// Wraps NSImageView so animated WebP/GIF images play automatically.
+/// Drives frame-by-frame animation for animated WebP (and any format where
+/// NSImageView.animates doesn't work) using CGImageSource frame data and a Timer.
+@Observable
+final class FrameAnimator {
+    var currentImage: NSImage?
+
+    private var frames: [(image: CGImage, delay: TimeInterval)] = []
+    private var frameIndex = 0
+    private var timer: Timer?
+
+    func load(url: URL) {
+        stop()
+        frames = []
+        frameIndex = 0
+        currentImage = nil
+
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return }
+        let count = CGImageSourceGetCount(source)
+
+        // Build frame list, reading per-frame delay from WebP, GIF, or APNG metadata.
+        for i in 0..<count {
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) else { continue }
+            let delay = Self.frameDelay(source: source, index: i)
+            frames.append((cgImage, delay))
+        }
+
+        // If only one frame was decoded, try iterating via the WebP frame info array
+        // (some WebP sources report count=1 but contain multiple frames).
+        if frames.count <= 1,
+           let containerProps = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
+           let webpDict = containerProps[kCGImagePropertyWebPDictionary] as? [CFString: Any],
+           let frameInfoArray = webpDict[kCGImagePropertyWebPFrameInfoArray] as? [[CFString: Any]],
+           frameInfoArray.count > 1 {
+            // Re-read using CGImageSourceCreateThumbnailAtIndex with full decode to get each frame
+            frames = []
+            let opts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: false,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            for (i, frameInfo) in frameInfoArray.enumerated() {
+                guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, opts as CFDictionary) else { continue }
+                let delay = (frameInfo[kCGImagePropertyWebPDelayTime] as? TimeInterval)
+                    ?? (frameInfo[kCGImagePropertyWebPUnclampedDelayTime] as? TimeInterval)
+                    ?? 0.1
+                frames.append((cgImage, max(delay, 0.01)))
+            }
+        }
+
+        guard !frames.isEmpty else { return }
+        showFrame(0)
+        guard frames.count > 1 else { return }
+        scheduleNext()
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func showFrame(_ index: Int) {
+        frameIndex = index
+        let cgImage = frames[index].image
+        currentImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    private func scheduleNext() {
+        let delay = frames[frameIndex].delay
+        timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            let next = (self.frameIndex + 1) % self.frames.count
+            self.showFrame(next)
+            self.scheduleNext()
+        }
+    }
+
+    private static func frameDelay(source: CGImageSource, index: Int) -> TimeInterval {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] else {
+            return 0.1
+        }
+        // WebP
+        if let webp = props[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+            if let d = webp[kCGImagePropertyWebPDelayTime] as? TimeInterval { return max(d, 0.01) }
+            if let d = webp[kCGImagePropertyWebPUnclampedDelayTime] as? TimeInterval { return max(d, 0.01) }
+        }
+        // GIF
+        if let gif = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+            if let d = gif[kCGImagePropertyGIFDelayTime] as? TimeInterval { return max(d, 0.01) }
+            if let d = gif[kCGImagePropertyGIFUnclampedDelayTime] as? TimeInterval { return max(d, 0.01) }
+        }
+        // APNG
+        if let png = props[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+            if let d = png[kCGImagePropertyAPNGDelayTime] as? TimeInterval { return max(d, 0.01) }
+            if let d = png[kCGImagePropertyAPNGUnclampedDelayTime] as? TimeInterval { return max(d, 0.01) }
+        }
+        return 0.1
+    }
+}
+
+/// Frame-driven animated image view for formats NSImageView can't animate (e.g. WebP).
+struct FrameAnimatedImageView: NSViewRepresentable {
+    var animator: FrameAnimator
+
+    func makeNSView(context: Context) -> NSImageView {
+        let view = NSImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.animates = false
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSImageView, context: Context) {
+        nsView.image = animator.currentImage
+    }
+}
+
+/// Wraps NSImageView so animated GIF/APNG images play automatically.
 struct AnimatedImageView: NSViewRepresentable {
     let image: NSImage
 
@@ -58,6 +177,7 @@ struct ImageDetailView: View {
     @State private var showCropSaveSheet: Bool = false
     @State private var pendingNormalizedRect: CGRect?
     @State private var cropError: String?
+    @State private var webpAnimator = FrameAnimator()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,16 +202,30 @@ struct ImageDetailView: View {
                         } else {
                             if let nsImage {
                                 if imageFile.isAnimated {
-                                    AnimatedImageView(image: nsImage)
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        .aspectRatio(
-                                            nsImage.size.width / max(nsImage.size.height, 1),
-                                            contentMode: .fit
-                                        )
-                                        .padding(8)
-                                        .onDrag {
-                                            NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
-                                        }
+                                    if imageFile.url.pathExtension.lowercased() == "webp" {
+                                        // NSImageView.animates only works for GIF; drive WebP frame-by-frame.
+                                        FrameAnimatedImageView(animator: webpAnimator)
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                            .aspectRatio(
+                                                nsImage.size.width / max(nsImage.size.height, 1),
+                                                contentMode: .fit
+                                            )
+                                            .padding(8)
+                                            .onDrag {
+                                                NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                                            }
+                                    } else {
+                                        AnimatedImageView(image: nsImage)
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                            .aspectRatio(
+                                                nsImage.size.width / max(nsImage.size.height, 1),
+                                                contentMode: .fit
+                                            )
+                                            .padding(8)
+                                            .onDrag {
+                                                NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                                            }
+                                    }
                                 } else {
                                     // Use GeometryReader so we can compute the rendered image rect
                                     // and position the crop overlay precisely over it.
@@ -139,11 +273,17 @@ struct ImageDetailView: View {
                         nsImage = nil
                         player?.pause()
                         player = nil
+                        webpAnimator.stop()
                         guard !imageFile.isCloudOnly else { return }
                         if imageFile.isVideo {
                             player = AVPlayer(url: imageFile.url)
                         } else {
                             nsImage = await loadFullImage(url: imageFile.url)
+                            // Start frame-driven animation for animated WebP after image loads
+                            if imageFile.isAnimated,
+                               imageFile.url.pathExtension.lowercased() == "webp" {
+                                webpAnimator.load(url: imageFile.url)
+                            }
                         }
                     }
                     .onChange(of: imageFile) {
