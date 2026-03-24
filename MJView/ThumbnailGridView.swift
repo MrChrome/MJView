@@ -48,6 +48,7 @@ struct ThumbnailGridView: View {
     var onRenameTag: ((Tag) -> Void)?
     var onRenameImage: ((ImageFile) -> Void)?
     var onDeleteImage: ((ImageFile) -> Void)?
+    var onShowPrompt: ((ImageFile) -> Void)?
     @Binding var fileTypeFilter: FileTypeFilter
     @Binding var showUntaggedOnly: Bool
     var taggedPaths: Set<String> = []
@@ -258,6 +259,12 @@ struct ThumbnailGridView: View {
                                 size: thumbnailSize
                             )
                             .contextMenu {
+                                if imageFile.url.pathExtension.lowercased() == "png" {
+                                    Button("Show Prompt") {
+                                        onShowPrompt?(imageFile)
+                                    }
+                                    Divider()
+                                }
                                 Button("Show in Finder") {
                                     NSWorkspace.shared.activateFileViewerSelecting([imageFile.url])
                                 }

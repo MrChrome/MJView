@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var renamingImage: ImageFile?
     @State private var renameImageText: String = ""
     @State private var deletingImage: ImageFile?
+    @State private var promptImage: ImageFile?
+    @State private var promptText: String?
     @State private var lastSelectedIndex: Int = 0
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
@@ -119,6 +121,10 @@ struct ContentView: View {
             },
             onDeleteImage: { image in
                 deletingImage = image
+            },
+            onShowPrompt: { image in
+                promptImage = image
+                promptText = PromptReader.readPrompt(from: image.url)
             },
             fileTypeFilter: $fileTypeFilter,
             showUntaggedOnly: $showUntaggedOnly,
@@ -303,6 +309,16 @@ struct ContentView: View {
             }
         } message: {
             Text("This will permanently delete the file from disk.")
+        }
+        .sheet(isPresented: Binding(
+            get: { promptImage != nil },
+            set: { if !$0 { promptImage = nil; promptText = nil } }
+        )) {
+            PromptSheetView(
+                fileName: promptImage?.name ?? "",
+                prompt: promptText,
+                onDismiss: { promptImage = nil; promptText = nil }
+            )
         }
     }
 
