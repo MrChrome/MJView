@@ -27,20 +27,23 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 }
 
-/// Drives frame-by-frame animation for animated WebP (and any format where
-/// NSImageView.animates doesn't work) using CGImageSource frame data and a Timer.
+/// Drives frame-by-frame animation for any animated image format using CGImageSource.
+/// Also exposes scrubbing controls (seek, pause, play) and frame export.
 @Observable
 final class FrameAnimator {
     var currentImage: NSImage?
+    var currentFrameIndex: Int = 0
+    var frameCount: Int = 0
+    var isPlaying: Bool = false
 
     private var frames: [(image: CGImage, delay: TimeInterval)] = []
-    private var frameIndex = 0
     private var timer: Timer?
 
     func load(url: URL) {
         stop()
         frames = []
-        frameIndex = 0
+        currentFrameIndex = 0
+        frameCount = 0
         currentImage = nil
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return }
@@ -53,19 +56,14 @@ final class FrameAnimator {
             frames.append((cgImage, delay))
         }
 
-        // If only one frame was decoded, try iterating via the WebP frame info array
-        // (some WebP sources report count=1 but contain multiple frames).
+        // Some animated WebP files report count=1 — fall back to the frame info array.
         if frames.count <= 1,
            let containerProps = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
            let webpDict = containerProps[kCGImagePropertyWebPDictionary] as? [CFString: Any],
            let frameInfoArray = webpDict[kCGImagePropertyWebPFrameInfoArray] as? [[CFString: Any]],
            frameInfoArray.count > 1 {
-            // Re-read using CGImageSourceCreateThumbnailAtIndex with full decode to get each frame
             frames = []
-            let opts: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: false,
-                kCGImageSourceShouldCacheImmediately: true
-            ]
+            let opts: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
             for (i, frameInfo) in frameInfoArray.enumerated() {
                 guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, opts as CFDictionary) else { continue }
                 let delay = (frameInfo[kCGImagePropertyWebPDelayTime] as? TimeInterval)
@@ -76,27 +74,51 @@ final class FrameAnimator {
         }
 
         guard !frames.isEmpty else { return }
+        frameCount = frames.count
         showFrame(0)
-        guard frames.count > 1 else { return }
-        scheduleNext()
+        if frames.count > 1 {
+            isPlaying = true
+            scheduleNext()
+        }
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        isPlaying = false
+    }
+
+    func play() {
+        guard frames.count > 1, !isPlaying else { return }
+        isPlaying = true
+        scheduleNext()
+    }
+
+    /// Seek to a specific frame index and pause.
+    func seek(to index: Int) {
+        guard index >= 0, index < frames.count else { return }
+        stop()
+        showFrame(index)
+    }
+
+    /// Returns the CGImage for the current frame, for export.
+    var currentCGImage: CGImage? {
+        guard currentFrameIndex < frames.count else { return nil }
+        return frames[currentFrameIndex].image
     }
 
     private func showFrame(_ index: Int) {
-        frameIndex = index
+        currentFrameIndex = index
         let cgImage = frames[index].image
         currentImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     private func scheduleNext() {
-        let delay = frames[frameIndex].delay
+        guard isPlaying else { return }
+        let delay = frames[currentFrameIndex].delay
         timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            let next = (self.frameIndex + 1) % self.frames.count
+            guard let self, self.isPlaying else { return }
+            let next = (self.currentFrameIndex + 1) % self.frames.count
             self.showFrame(next)
             self.scheduleNext()
         }
@@ -145,6 +167,70 @@ struct FrameAnimatedImageView: NSViewRepresentable {
     }
 }
 
+/// Scrubber bar and controls that overlay the animated image view.
+struct FrameScrubbingView: View {
+    var animator: FrameAnimator
+    let onExport: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            HStack(spacing: 10) {
+                // Play / pause
+                Button {
+                    if animator.isPlaying { animator.stop() } else { animator.play() }
+                } label: {
+                    Image(systemName: animator.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 16)
+                }
+                .buttonStyle(.plain)
+                .help(animator.isPlaying ? "Pause" : "Play")
+
+                // Scrubber slider
+                if animator.frameCount > 1 {
+                    Slider(
+                        value: Binding(
+                            get: { Double(animator.currentFrameIndex) },
+                            set: { animator.seek(to: Int($0.rounded())) }
+                        ),
+                        in: 0...Double(max(animator.frameCount - 1, 1)),
+                        step: 1
+                    )
+                }
+
+                // Frame counter
+                Text("\(animator.currentFrameIndex + 1) / \(animator.frameCount)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 52, alignment: .trailing)
+
+                // Export current frame
+                Button {
+                    onExport()
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .help("Export Current Frame as PNG")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.bar)
+        }
+    }
+}
+
+/// Saves a CGImage as a PNG to a URL chosen by the user via NSSavePanel.
+func exportFrameAsPNG(_ cgImage: CGImage, suggestedName: String) {
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.png]
+    panel.nameFieldStringValue = suggestedName
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
+    CGImageDestinationAddImage(dest, cgImage, nil)
+    CGImageDestinationFinalize(dest)
+}
+
 /// Wraps NSImageView so animated GIF/APNG images play automatically.
 struct AnimatedImageView: NSViewRepresentable {
     let image: NSImage
@@ -169,6 +255,7 @@ struct AnimatedImageView: NSViewRepresentable {
 struct ImageDetailView: View {
     let imageFile: ImageFile?
     @Binding var isCropping: Bool
+    @Binding var isScrubbing: Bool
     var onCropCompleted: ((URL, CropSaveMode) -> Void)?
 
     @State private var nsImage: NSImage?
@@ -177,7 +264,8 @@ struct ImageDetailView: View {
     @State private var showCropSaveSheet: Bool = false
     @State private var pendingNormalizedRect: CGRect?
     @State private var cropError: String?
-    @State private var webpAnimator = FrameAnimator()
+    /// Unified animator for all animated images — used for scrubbing and WebP playback.
+    @State private var frameAnimator = FrameAnimator()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -202,9 +290,10 @@ struct ImageDetailView: View {
                         } else {
                             if let nsImage {
                                 if imageFile.isAnimated {
-                                    if imageFile.url.pathExtension.lowercased() == "webp" {
-                                        // NSImageView.animates only works for GIF; drive WebP frame-by-frame.
-                                        FrameAnimatedImageView(animator: webpAnimator)
+                                    // All animated formats use FrameAnimatedImageView so the
+                                    // scrubber can control playback uniformly.
+                                    ZStack(alignment: .bottom) {
+                                        FrameAnimatedImageView(animator: frameAnimator)
                                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                                             .aspectRatio(
                                                 nsImage.size.width / max(nsImage.size.height, 1),
@@ -214,17 +303,15 @@ struct ImageDetailView: View {
                                             .onDrag {
                                                 NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
                                             }
-                                    } else {
-                                        AnimatedImageView(image: nsImage)
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                            .aspectRatio(
-                                                nsImage.size.width / max(nsImage.size.height, 1),
-                                                contentMode: .fit
-                                            )
-                                            .padding(8)
-                                            .onDrag {
-                                                NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+
+                                        if isScrubbing {
+                                            FrameScrubbingView(animator: frameAnimator) {
+                                                if let cgImage = frameAnimator.currentCGImage {
+                                                    let base = imageFile.url.deletingPathExtension().lastPathComponent
+                                                    exportFrameAsPNG(cgImage, suggestedName: "\(base)_frame\(frameAnimator.currentFrameIndex + 1).png")
+                                                }
                                             }
+                                        }
                                     }
                                 } else {
                                     // Use GeometryReader so we can compute the rendered image rect
@@ -273,22 +360,29 @@ struct ImageDetailView: View {
                         nsImage = nil
                         player?.pause()
                         player = nil
-                        webpAnimator.stop()
+                        frameAnimator.stop()
                         guard !imageFile.isCloudOnly else { return }
                         if imageFile.isVideo {
                             player = AVPlayer(url: imageFile.url)
                         } else {
                             nsImage = await loadFullImage(url: imageFile.url)
-                            // Start frame-driven animation for animated WebP after image loads
-                            if imageFile.isAnimated,
-                               imageFile.url.pathExtension.lowercased() == "webp" {
-                                webpAnimator.load(url: imageFile.url)
+                            // Load frame animator for all animated images (WebP, GIF, APNG)
+                            if imageFile.isAnimated {
+                                frameAnimator.load(url: imageFile.url)
                             }
                         }
                     }
                     .onChange(of: imageFile) {
-                        // Exit crop mode when the selected image changes
+                        // Exit crop and scrubber modes when the selected image changes
                         isCropping = false
+                        if !imageFile.isAnimated {
+                            isScrubbing = false
+                        }
+                    }
+                    .onChange(of: isScrubbing) {
+                        if isScrubbing {
+                            frameAnimator.stop()
+                        }
                     }
                     .sheet(isPresented: $showCropSaveSheet) {
                         CropSaveSheet(

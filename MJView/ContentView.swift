@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var sidebarWidth: CGFloat = 220
     @State private var isTagPanelVisible = true
     @State private var isCropping: Bool = false
+    @State private var isScrubbing: Bool = false
     @State private var pendingSelectURL: URL?
     @State private var renamingTagInFilter: Tag?
     @State private var renamingImage: ImageFile?
@@ -64,6 +65,7 @@ struct ContentView: View {
         ImageDetailView(
             imageFile: selectedImage,
             isCropping: $isCropping,
+            isScrubbing: $isScrubbing,
             onCropCompleted: { savedURL, mode in
                 handleCropCompleted(savedURL: savedURL, mode: mode)
             }
@@ -174,6 +176,14 @@ struct ContentView: View {
                 .disabled(!canCrop)
 
                 Button {
+                    isScrubbing.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.below.rectangle")
+                }
+                .help(isScrubbing ? "Hide Frame Scrubber" : "Show Frame Scrubber")
+                .disabled(!(selectedImage?.isAnimated ?? false))
+
+                Button {
                     isTagPanelVisible.toggle()
                 } label: {
                     Image(systemName: "tag")
@@ -201,6 +211,10 @@ struct ContentView: View {
             appState.selectedImage = selectedImage
             if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
                 lastSelectedIndex = index
+            }
+            // Hide scrubber when switching to a non-animated image
+            if !(selectedImage?.isAnimated ?? false) {
+                isScrubbing = false
             }
             // Auto-download cloud-only files when selected
             if let image = selectedImage, image.isCloudOnly {
