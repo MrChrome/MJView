@@ -85,6 +85,74 @@ struct CropService {
         return destinationURL
     }
 
+    /// Flips `sourceURL` horizontally and/or vertically and writes to disk.
+    /// Returns the URL of the saved file.
+    static func flipAndSave(
+        sourceURL: URL,
+        flipHorizontal: Bool,
+        flipVertical: Bool,
+        saveMode: CropSaveMode
+    ) throws -> URL {
+        guard let imageSource = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            throw CropError.cannotLoadImage
+        }
+
+        let width  = cgImage.width
+        let height = cgImage.height
+        let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = cgImage.bitmapInfo
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: cgImage.bitsPerComponent,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            throw CropError.cropFailed
+        }
+
+        // Apply flip transforms around the image centre
+        context.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        context.scaleBy(
+            x: flipHorizontal ? -1 : 1,
+            y: flipVertical   ? -1 : 1
+        )
+        context.translateBy(x: -CGFloat(width) / 2, y: -CGFloat(height) / 2)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let flippedCGImage = context.makeImage() else {
+            throw CropError.cropFailed
+        }
+
+        let destinationURL: URL
+        switch saveMode {
+        case .overwrite: destinationURL = sourceURL
+        case .saveAsNew: destinationURL = uniqueFlippedURL(for: sourceURL)
+        }
+
+        let uti = outputUTType(for: sourceURL)
+        guard let destination = CGImageDestinationCreateWithURL(
+            destinationURL as CFURL,
+            uti.identifier as CFString,
+            1, nil
+        ) else {
+            throw CropError.cannotCreateDestination
+        }
+
+        let originalProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
+        CGImageDestinationAddImage(destination, flippedCGImage, originalProperties)
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw CropError.writeFailed
+        }
+
+        return destinationURL
+    }
+
     /// Generates `<stem>_cropped.<ext>`, incrementing a counter if the name already exists.
     static func uniqueURL(for sourceURL: URL) -> URL {
         let directory = sourceURL.deletingLastPathComponent()
@@ -92,6 +160,22 @@ struct CropService {
         let ext       = sourceURL.pathExtension
 
         let baseName  = "\(stem)_cropped"
+        var candidate = directory.appendingPathComponent("\(baseName).\(ext)")
+        var counter   = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(baseName) \(counter).\(ext)")
+            counter += 1
+        }
+        return candidate
+    }
+
+    /// Generates `<stem>_flipped.<ext>`, incrementing a counter if the name already exists.
+    static func uniqueFlippedURL(for sourceURL: URL) -> URL {
+        let directory = sourceURL.deletingLastPathComponent()
+        let stem      = sourceURL.deletingPathExtension().lastPathComponent
+        let ext       = sourceURL.pathExtension
+
+        let baseName  = "\(stem)_flipped"
         var candidate = directory.appendingPathComponent("\(baseName).\(ext)")
         var counter   = 2
         while FileManager.default.fileExists(atPath: candidate.path) {

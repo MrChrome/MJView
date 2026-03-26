@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var isTagPanelVisible = true
     @State private var isCropping: Bool = false
     @State private var isScrubbing: Bool = false
+    @State private var isFlippedHorizontal: Bool = false
+    @State private var isFlippedVertical: Bool = false
     @State private var pendingSelectURL: URL?
     @State private var renamingTagInFilter: Tag?
     @State private var renamingImage: ImageFile?
@@ -68,7 +70,12 @@ struct ContentView: View {
             imageFile: selectedImage,
             isCropping: $isCropping,
             isScrubbing: $isScrubbing,
+            isFlippedHorizontal: $isFlippedHorizontal,
+            isFlippedVertical: $isFlippedVertical,
             onCropCompleted: { savedURL, mode in
+                handleCropCompleted(savedURL: savedURL, mode: mode)
+            },
+            onFlipCompleted: { savedURL, mode in
                 handleCropCompleted(savedURL: savedURL, mode: mode)
             }
         )
@@ -188,6 +195,23 @@ struct ContentView: View {
                 }
                 .help(isScrubbing ? "Hide Frame Scrubber" : "Show Frame Scrubber")
                 .disabled(!(selectedImage?.isAnimated ?? false))
+
+                Button {
+                    isFlippedHorizontal.toggle()
+                } label: {
+                    Image(systemName: "flip.horizontal")
+                }
+                .help(isFlippedHorizontal ? "Reset Horizontal Flip" : "Flip Horizontally")
+                .disabled(selectedImage == nil || selectedImage?.isVideo == true)
+
+                Button {
+                    isFlippedVertical.toggle()
+                } label: {
+                    Image(systemName: "flip.horizontal.fill")
+                        .rotationEffect(.degrees(90))
+                }
+                .help(isFlippedVertical ? "Reset Vertical Flip" : "Flip Vertically")
+                .disabled(selectedImage == nil || selectedImage?.isVideo == true)
 
                 Button {
                     isTagPanelVisible.toggle()

@@ -256,7 +256,10 @@ struct ImageDetailView: View {
     let imageFile: ImageFile?
     @Binding var isCropping: Bool
     @Binding var isScrubbing: Bool
+    @Binding var isFlippedHorizontal: Bool
+    @Binding var isFlippedVertical: Bool
     var onCropCompleted: ((URL, CropSaveMode) -> Void)?
+    var onFlipCompleted: ((URL, CropSaveMode) -> Void)?
 
     @State private var nsImage: NSImage?
     @State private var player: AVPlayer?
@@ -264,6 +267,8 @@ struct ImageDetailView: View {
     @State private var showCropSaveSheet: Bool = false
     @State private var pendingNormalizedRect: CGRect?
     @State private var cropError: String?
+    @State private var showFlipSaveSheet: Bool = false
+    @State private var flipError: String?
     /// Unified animator for all animated images — used for scrubbing and WebP playback.
     @State private var frameAnimator = FrameAnimator()
 
@@ -299,6 +304,10 @@ struct ImageDetailView: View {
                                                 nsImage.size.width / max(nsImage.size.height, 1),
                                                 contentMode: .fit
                                             )
+                                            .scaleEffect(
+                                                x: isFlippedHorizontal ? -1 : 1,
+                                                y: isFlippedVertical ? -1 : 1
+                                            )
                                             .padding(8)
                                             .onDrag {
                                                 NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
@@ -329,6 +338,10 @@ struct ImageDetailView: View {
                                             Image(nsImage: nsImage)
                                                 .resizable()
                                                 .aspectRatio(contentMode: .fit)
+                                                .scaleEffect(
+                                                    x: isFlippedHorizontal ? -1 : 1,
+                                                    y: isFlippedVertical ? -1 : 1
+                                                )
                                                 .padding(8)
                                                 .onDrag {
                                                     NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
@@ -378,10 +391,28 @@ struct ImageDetailView: View {
                         if !imageFile.isAnimated {
                             isScrubbing = false
                         }
+                        // Reset flip state for the new image
+                        isFlippedHorizontal = false
+                        isFlippedVertical = false
                     }
                     .onChange(of: isScrubbing) {
                         if isScrubbing {
                             frameAnimator.stop()
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // Show a save button whenever a flip is active (non-video, non-cloud images only)
+                        if (isFlippedHorizontal || isFlippedVertical) && !imageFile.isVideo && !imageFile.isCloudOnly {
+                            Button {
+                                showFlipSaveSheet = true
+                            } label: {
+                                Label("Save Flipped Image", systemImage: "square.and.arrow.down")
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(12)
                         }
                     }
                     .sheet(isPresented: $showCropSaveSheet) {
@@ -398,6 +429,19 @@ struct ImageDetailView: View {
                             }
                         )
                     }
+                    .sheet(isPresented: $showFlipSaveSheet) {
+                        CropSaveSheet(
+                            originalFileName: imageFile.name,
+                            newFileName: CropService.uniqueFlippedURL(for: imageFile.url).lastPathComponent,
+                            onSave: { mode in
+                                performFlip(imageFile: imageFile, mode: mode)
+                                showFlipSaveSheet = false
+                            },
+                            onCancel: {
+                                showFlipSaveSheet = false
+                            }
+                        )
+                    }
                     .alert("Crop Error", isPresented: Binding(
                         get: { cropError != nil },
                         set: { if !$0 { cropError = nil } }
@@ -405,6 +449,14 @@ struct ImageDetailView: View {
                         Button("OK") { cropError = nil }
                     } message: {
                         Text(cropError ?? "")
+                    }
+                    .alert("Flip Error", isPresented: Binding(
+                        get: { flipError != nil },
+                        set: { if !$0 { flipError = nil } }
+                    )) {
+                        Button("OK") { flipError = nil }
+                    } message: {
+                        Text(flipError ?? "")
                     }
                 } else {
                     Color(nsColor: .controlBackgroundColor)
@@ -460,6 +512,26 @@ struct ImageDetailView: View {
             onCropCompleted?(savedURL, mode)
         } catch {
             cropError = error.localizedDescription
+        }
+    }
+
+    private func performFlip(imageFile: ImageFile, mode: CropSaveMode) {
+        do {
+            let savedURL = try CropService.flipAndSave(
+                sourceURL: imageFile.url,
+                flipHorizontal: isFlippedHorizontal,
+                flipVertical: isFlippedVertical,
+                saveMode: mode
+            )
+            // Reset visual flip state — the saved file is now the canonical version
+            isFlippedHorizontal = false
+            isFlippedVertical = false
+            if mode == .overwrite {
+                reloadCounter += 1
+            }
+            onFlipCompleted?(savedURL, mode)
+        } catch {
+            flipError = error.localizedDescription
         }
     }
 
