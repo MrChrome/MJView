@@ -321,8 +321,13 @@ struct ImageDetailView: View {
                                             .onTapGesture(count: 2) {
                                                 withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
                                             }
-                                            .onDrag {
-                                                NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                                            .fileDrag(when: zoomScale <= 1.0, url: imageFile.url)
+                                            .onHover { hovering in
+                                                if hovering && effectiveZoomScale > 1.0 {
+                                                    NSCursor.openHand.push()
+                                                } else {
+                                                    NSCursor.pop()
+                                                }
                                             }
 
                                         if isScrubbing {
@@ -357,9 +362,7 @@ struct ImageDetailView: View {
                                                 .padding(8)
                                                 .scaleEffect(effectiveZoomScale)
                                                 .offset(effectivePanOffset)
-                                                .onDrag {
-                                                    NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
-                                                }
+                                                .fileDrag(when: zoomScale <= 1.0, url: imageFile.url)
                                         }
                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                                         .clipped()
@@ -367,6 +370,13 @@ struct ImageDetailView: View {
                                         .onTapGesture(count: 2) {
                                             guard !isCropping else { return }
                                             withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                                        }
+                                        .onHover { hovering in
+                                            if hovering && effectiveZoomScale > 1.0 {
+                                                NSCursor.openHand.push()
+                                            } else {
+                                                NSCursor.pop()
+                                            }
                                         }
 
                                         if isCropping {
@@ -663,5 +673,20 @@ struct ImageDetailView: View {
         zoomScaleTemp = 1.0
         panOffset = .zero
         panOffsetTemp = .zero
+    }
+}
+
+private extension View {
+    /// Applies `.onDrag` for file drag-and-drop only when `enabled` is true.
+    /// When zoomed in, this is disabled so the pan DragGesture can fire instead.
+    @ViewBuilder
+    func fileDrag(when enabled: Bool, url: URL) -> some View {
+        if enabled {
+            self.onDrag {
+                NSItemProvider(contentsOf: url) ?? NSItemProvider()
+            }
+        } else {
+            self
+        }
     }
 }
