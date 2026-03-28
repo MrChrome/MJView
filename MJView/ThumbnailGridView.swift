@@ -54,6 +54,7 @@ struct ThumbnailGridView: View {
     var taggedPaths: Set<String> = []
 
     @Binding var selectedTagIds: Set<Int64>
+    @Binding var sortedImagesForNav: [ImageFile]
     @State private var isFilterPopoverShown = false
     @State private var shuffleSeed: UInt64 = 0
 
@@ -339,6 +340,12 @@ struct ThumbnailGridView: View {
             .padding(.vertical, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            sortedImagesForNav = sortedImages
+        }
+        .onChange(of: sortedImages) {
+            sortedImagesForNav = sortedImages
+        }
     }
 }
 

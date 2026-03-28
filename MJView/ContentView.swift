@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var promptImage: ImageFile?
     @State private var promptText: String?
     @State private var lastSelectedIndex: Int = 0
+    @State private var gridImages: [ImageFile] = []
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
     @State private var showUntaggedOnly: Bool = false
@@ -136,7 +137,8 @@ struct ContentView: View {
             fileTypeFilter: $fileTypeFilter,
             showUntaggedOnly: $showUntaggedOnly,
             taggedPaths: tagDatabase.allTaggedPaths,
-            selectedTagIds: $selectedTagIds
+            selectedTagIds: $selectedTagIds,
+            sortedImagesForNav: $gridImages
         )
         .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
     }
@@ -239,7 +241,7 @@ struct ContentView: View {
         }
         .onChange(of: selectedImage) {
             appState.selectedImage = selectedImage
-            if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+            if let current = selectedImage, let index = gridImages.firstIndex(of: current) {
                 lastSelectedIndex = index
             }
             // Hide scrubber when switching to a non-animated image
@@ -367,7 +369,7 @@ struct ContentView: View {
     private func deleteImage(_ image: ImageFile) {
         // Advance selection away from the deleted image if it is currently selected
         if selectedImage == image {
-            let sorted = sortedImages
+            let sorted = gridImages
             if let index = sorted.firstIndex(of: image) {
                 if index + 1 < sorted.count {
                     selectedImage = sorted[index + 1]
@@ -388,37 +390,37 @@ struct ContentView: View {
     }
 
     private func selectPreviousImage() {
-        guard !sortedImages.isEmpty else { return }
-        if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+        guard !gridImages.isEmpty else { return }
+        if let current = selectedImage, let index = gridImages.firstIndex(of: current) {
             // Current image is still in the list — wrap around to last if at the beginning
-            let prevIndex = index > 0 ? index - 1 : sortedImages.count - 1
-            let image = sortedImages[prevIndex]
+            let prevIndex = index > 0 ? index - 1 : gridImages.count - 1
+            let image = gridImages[prevIndex]
             selectedImage = image
             selectedImages = [image]
         } else {
             // Current image was filtered out — lastSelectedIndex now points to the
             // image that slid into that position, so go one before it
-            let index = min(lastSelectedIndex, sortedImages.count - 1)
-            let prevIndex = index > 0 ? index - 1 : sortedImages.count - 1
-            let image = sortedImages[prevIndex]
+            let index = min(lastSelectedIndex, gridImages.count - 1)
+            let prevIndex = index > 0 ? index - 1 : gridImages.count - 1
+            let image = gridImages[prevIndex]
             selectedImage = image
             selectedImages = [image]
         }
     }
 
     private func selectNextImage() {
-        guard !sortedImages.isEmpty else { return }
-        if let current = selectedImage, let index = sortedImages.firstIndex(of: current) {
+        guard !gridImages.isEmpty else { return }
+        if let current = selectedImage, let index = gridImages.firstIndex(of: current) {
             // Current image is still in the list — wrap around to first if at the end
-            let nextIndex = index < sortedImages.count - 1 ? index + 1 : 0
-            let image = sortedImages[nextIndex]
+            let nextIndex = index < gridImages.count - 1 ? index + 1 : 0
+            let image = gridImages[nextIndex]
             selectedImage = image
             selectedImages = [image]
         } else {
             // Current image was filtered out — lastSelectedIndex now points to the
             // image that slid into that position, so go there directly (not +1)
-            let index = min(lastSelectedIndex, sortedImages.count - 1)
-            let image = sortedImages[index]
+            let index = min(lastSelectedIndex, gridImages.count - 1)
+            let image = gridImages[index]
             selectedImage = image
             selectedImages = [image]
         }

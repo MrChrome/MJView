@@ -505,6 +505,17 @@ struct ImageDetailView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
+                    if !imageFile.isVideo {
+                        HStack(spacing: 4) {
+                            Image(systemName: "minus.magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            Slider(value: $zoomScale, in: 1.0...5.0)
+                                .controlSize(.mini)
+                                .frame(width: 80)
+                            Image(systemName: "plus.magnifyingglass")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     if !imageFile.dimensionString.isEmpty {
                         Text(imageFile.dimensionString)
                             .foregroundStyle(.secondary)
@@ -516,6 +527,12 @@ struct ImageDetailView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 .background(.bar)
+            }
+        }
+        .onChange(of: zoomScale) {
+            if zoomScale <= 1.0 {
+                panOffset = .zero
+                panOffsetTemp = .zero
             }
         }
     }
