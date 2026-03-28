@@ -272,6 +272,12 @@ struct ImageDetailView: View {
     /// Unified animator for all animated images — used for scrubbing and WebP playback.
     @State private var frameAnimator = FrameAnimator()
 
+    // Zoom / pan state
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var zoomScaleTemp: CGFloat = 1.0   // live scale during active pinch
+    @State private var panOffset: CGSize = .zero
+    @State private var panOffsetTemp: CGSize = .zero  // live offset during active drag
+
     var body: some View {
         VStack(spacing: 0) {
             Group {
@@ -309,6 +315,12 @@ struct ImageDetailView: View {
                                                 y: isFlippedVertical ? -1 : 1
                                             )
                                             .padding(8)
+                                            .scaleEffect(effectiveZoomScale)
+                                            .offset(effectivePanOffset)
+                                            .gesture(zoomPanGesture)
+                                            .onTapGesture(count: 2) {
+                                                withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                                            }
                                             .onDrag {
                                                 NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
                                             }
@@ -343,11 +355,19 @@ struct ImageDetailView: View {
                                                     y: isFlippedVertical ? -1 : 1
                                                 )
                                                 .padding(8)
+                                                .scaleEffect(effectiveZoomScale)
+                                                .offset(effectivePanOffset)
                                                 .onDrag {
                                                     NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
                                                 }
                                         }
                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .clipped()
+                                        .gesture(zoomPanGesture)
+                                        .onTapGesture(count: 2) {
+                                            guard !isCropping else { return }
+                                            withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                                        }
 
                                         if isCropping {
                                             CropOverlayView(
@@ -394,6 +414,11 @@ struct ImageDetailView: View {
                         // Reset flip state for the new image
                         isFlippedHorizontal = false
                         isFlippedVertical = false
+                        // Reset zoom for the new image
+                        resetZoom()
+                    }
+                    .onChange(of: isCropping) {
+                        if isCropping { resetZoom() }
                     }
                     .onChange(of: isScrubbing) {
                         if isScrubbing {
@@ -571,5 +596,55 @@ struct ImageDetailView: View {
             guard let data = try? Data(contentsOf: url) else { return nil }
             return NSImage(data: data)
         }.value
+    }
+
+    // MARK: - Zoom / Pan helpers
+
+    private var effectiveZoomScale: CGFloat {
+        max(1.0, min(5.0, zoomScale * zoomScaleTemp))
+    }
+
+    private var effectivePanOffset: CGSize {
+        CGSize(
+            width: panOffset.width + panOffsetTemp.width,
+            height: panOffset.height + panOffsetTemp.height
+        )
+    }
+
+    private var zoomPanGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                zoomScaleTemp = value
+            }
+            .onEnded { value in
+                zoomScale = max(1.0, min(5.0, zoomScale * value))
+                zoomScaleTemp = 1.0
+                if zoomScale <= 1.0 {
+                    zoomScale = 1.0
+                    panOffset = .zero
+                }
+            }
+            .simultaneously(with:
+                DragGesture()
+                    .onChanged { value in
+                        guard effectiveZoomScale > 1.0 else { return }
+                        panOffsetTemp = value.translation
+                    }
+                    .onEnded { value in
+                        guard effectiveZoomScale > 1.0 else { return }
+                        panOffset = CGSize(
+                            width: panOffset.width + value.translation.width,
+                            height: panOffset.height + value.translation.height
+                        )
+                        panOffsetTemp = .zero
+                    }
+            )
+    }
+
+    private func resetZoom() {
+        zoomScale = 1.0
+        zoomScaleTemp = 1.0
+        panOffset = .zero
+        panOffsetTemp = .zero
     }
 }
