@@ -141,6 +141,19 @@ struct ContentView: View {
             sortedImagesForNav: $gridImages
         )
         .frame(minWidth: 150, idealWidth: sidebarWidth, maxWidth: 400)
+        .overlay {
+            if loader.isLoading {
+                ZStack {
+                    Color(nsColor: .controlBackgroundColor).opacity(0.85)
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading…")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12))
+                    }
+                }
+            }
+        }
     }
 
     var body: some View {
