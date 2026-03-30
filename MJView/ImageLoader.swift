@@ -277,7 +277,7 @@ class ImageLoader {
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let isVideo = videoExtensions.contains(ext)
             let cloudOnly = isCloudOnlyFile(fileURL)
-            var imageFile = ImageFile(
+            let imageFile = ImageFile(
                 url: fileURL,
                 name: fileURL.lastPathComponent,
                 fileSize: fileSize,
@@ -286,20 +286,6 @@ class ImageLoader {
                 isVideo: isVideo,
                 isCloudOnly: cloudOnly
             )
-
-            // Get pixel dimensions and animation state (images only).
-            // Skip for cloud-only files to avoid triggering a download.
-            if !isVideo, !cloudOnly,
-               let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
-                if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
-                    if let w = properties[kCGImagePropertyPixelWidth] as? Int,
-                       let h = properties[kCGImagePropertyPixelHeight] as? Int {
-                        imageFile.pixelWidth = w
-                        imageFile.pixelHeight = h
-                    }
-                }
-                imageFile.isAnimated = isAnimatedImageSource(imageSource)
-            }
 
             imageResults.append(imageFile)
         }
@@ -428,6 +414,24 @@ class ImageLoader {
         }
     }
 
+    /// Reads pixel dimensions and animation state for a single image if not yet loaded.
+    /// Called lazily when an image is selected, avoiding file opens during the folder scan.
+    func loadMetadataIfNeeded(for image: ImageFile) {
+        guard !image.isVideo, !image.isCloudOnly, image.pixelWidth == 0 else { return }
+        let url = image.url
+        let id = image.id
+        Task.detached { [weak self] in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return }
+            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let width = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+            let height = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+            let animated = Self.isAnimatedImageSource(source)
+            await MainActor.run { [weak self] in
+                self?.updateImage(id: id, pixelWidth: width, pixelHeight: height, isAnimated: animated)
+            }
+        }
+    }
+
     /// Updates an image entry in both `images` and `tagFilteredImages` after download.
     private func updateImage(id: UUID, pixelWidth: Int, pixelHeight: Int, isAnimated: Bool) {
         if let idx = images.firstIndex(where: { $0.id == id }) {
@@ -470,7 +474,7 @@ class ImageLoader {
             let isVideo = videoExtensions.contains(ext)
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let cloudOnly = isCloudOnlyFile(fileURL)
-            var imageFile = ImageFile(
+            let imageFile = ImageFile(
                 url: fileURL,
                 name: fileURL.lastPathComponent,
                 fileSize: fileSize,
@@ -479,14 +483,6 @@ class ImageLoader {
                 isVideo: isVideo,
                 isCloudOnly: cloudOnly
             )
-            if !isVideo, !cloudOnly,
-               let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) {
-                if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
-                    imageFile.pixelWidth = props[kCGImagePropertyPixelWidth] as? Int ?? 0
-                    imageFile.pixelHeight = props[kCGImagePropertyPixelHeight] as? Int ?? 0
-                }
-                imageFile.isAnimated = isAnimatedImageSource(source)
-            }
             results.append(imageFile)
             processed += 1
             if let onProgress, total > 0, processed % 10 == 0 {

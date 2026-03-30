@@ -254,6 +254,10 @@ struct AnimatedImageView: NSViewRepresentable {
 
 struct ImageDetailView: View {
     let imageFile: ImageFile?
+    /// Incremented by ContentView whenever metadata (dimensions, animation) loads
+    /// for the selected image. Forces this view to re-render even when ImageFile.==
+    /// considers the file unchanged (it only compares URL + isCloudOnly).
+    let metadataVersion: Int
     @Binding var isCropping: Bool
     @Binding var isScrubbing: Bool
     @Binding var isFlippedHorizontal: Bool

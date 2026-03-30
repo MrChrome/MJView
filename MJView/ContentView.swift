@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var promptText: String?
     @State private var lastSelectedIndex: Int = 0
     @State private var gridImages: [ImageFile] = []
+    @State private var metadataVersion: Int = 0
     @State private var renameFilterText: String = ""
     @State private var fileTypeFilter: FileTypeFilter = .all
     @State private var showUntaggedOnly: Bool = false
@@ -69,6 +70,7 @@ struct ContentView: View {
     private var imageDetailView: some View {
         ImageDetailView(
             imageFile: selectedImage,
+            metadataVersion: metadataVersion,
             isCropping: $isCropping,
             isScrubbing: $isScrubbing,
             isFlippedHorizontal: $isFlippedHorizontal,
@@ -268,19 +270,27 @@ struct ContentView: View {
             if let image = selectedImage, image.isCloudOnly {
                 loader.downloadCloudFile(image)
             }
+            // Lazily load pixel dimensions and animation state
+            if let image = selectedImage {
+                loader.loadMetadataIfNeeded(for: image)
+            }
         }
         .onChange(of: loader.lastDownloadedFileId) {
-            // When a cloud file finishes downloading, refresh the selected image
-            // so the detail view picks up the updated isCloudOnly state.
+            // When a file's metadata or download finishes, refresh stale copies
+            // throughout the view so arrow-key navigation and the detail view
+            // pick up the updated fields (pixelWidth, isAnimated, isCloudOnly).
             guard let downloadedId = loader.lastDownloadedFileId else { return }
-            if let current = selectedImage, current.id == downloadedId,
-               let updated = loader.images.first(where: { $0.id == downloadedId }) {
+            let updated = loader.images.first(where: { $0.id == downloadedId })
+            // Keep gridImages in sync so arrow-key navigation uses fresh data.
+            if let updated, let idx = gridImages.firstIndex(where: { $0.id == downloadedId }) {
+                gridImages[idx] = updated
+            }
+            if let current = selectedImage, current.id == downloadedId, let updated {
                 selectedImage = updated
+                metadataVersion += 1
             }
             selectedImages = selectedImages.map { img in
-                if img.id == downloadedId, let updated = loader.images.first(where: { $0.id == downloadedId }) {
-                    return updated
-                }
+                if img.id == downloadedId, let updated { return updated }
                 return img
             }.reduce(into: Set<ImageFile>()) { $0.insert($1) }
         }
