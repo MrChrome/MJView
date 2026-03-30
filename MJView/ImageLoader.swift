@@ -14,6 +14,7 @@ class ImageLoader {
     var currentFolder: URL?
     var rootFolder: URL?
     var isLoading = false
+    var loadingProgress: Double = 0.0
     var needsFolderSelection = false
     var recentFolders: [URL] = []
 
@@ -140,6 +141,7 @@ class ImageLoader {
 
         currentFolder = url
         isLoading = true
+        loadingProgress = 0.0
         images = []
         subfolders = []
         needsFolderSelection = false
@@ -147,11 +149,26 @@ class ImageLoader {
 
         Task.detached { [weak self] in
             guard let self else { return }
-            let (loadedImages, loadedSubfolders) = Self.scanFolder(url)
+            let fm = FileManager.default
+            let estimatedTotal = (try? fm.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            ).count) ?? 0
+            let (loadedImages, loadedSubfolders) = Self.scanFolder(
+                url,
+                estimatedTotal: estimatedTotal,
+                onProgress: { progress in
+                    DispatchQueue.main.async { [weak self] in
+                        self?.loadingProgress = progress
+                    }
+                }
+            )
             await MainActor.run {
                 self.images = loadedImages
                 self.subfolders = loadedSubfolders
                 self.isLoading = false
+                self.loadingProgress = 1.0
             }
         }
     }
@@ -217,7 +234,11 @@ class ImageLoader {
         return values.ubiquitousItemDownloadingStatus != .current
     }
 
-    private nonisolated static func scanFolder(_ url: URL) -> (images: [ImageFile], subfolders: [FolderItem]) {
+    private nonisolated static func scanFolder(
+        _ url: URL,
+        estimatedTotal: Int = 0,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) -> (images: [ImageFile], subfolders: [FolderItem]) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
@@ -227,8 +248,15 @@ class ImageLoader {
 
         var imageResults: [ImageFile] = []
         var folderResults: [FolderItem] = []
+        var processed = 0
 
         for case let fileURL as URL in enumerator {
+            defer {
+                processed += 1
+                if let onProgress, estimatedTotal > 0, processed % 25 == 0 {
+                    onProgress(min(Double(processed) / Double(estimatedTotal), 0.99))
+                }
+            }
             guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .creationDateKey, .contentModificationDateKey]) else { continue }
 
             if resourceValues.isDirectory == true {
@@ -284,16 +312,26 @@ class ImageLoader {
     func applyTagFilter(matchingPaths: Set<String>) {
         guard let root = rootFolder else { return }
         isLoading = true
+        loadingProgress = 0.0
         tagFilteredImages = nil
 
         Task.detached { [weak self] in
             guard let self else { return }
             let didGainAccess = root.startAccessingSecurityScopedResource()
-            let results = Self.scanAllFiles(under: root, matchingPaths: matchingPaths)
+            let results = Self.scanAllFiles(
+                under: root,
+                matchingPaths: matchingPaths,
+                onProgress: { progress in
+                    DispatchQueue.main.async { [weak self] in
+                        self?.loadingProgress = progress
+                    }
+                }
+            )
             if didGainAccess { root.stopAccessingSecurityScopedResource() }
             await MainActor.run {
                 self.tagFilteredImages = results
                 self.isLoading = false
+                self.loadingProgress = 1.0
             }
         }
     }
@@ -408,7 +446,11 @@ class ImageLoader {
     }
 
     /// Recursively scans all files under a root URL, returning only those whose path is in matchingPaths.
-    private nonisolated static func scanAllFiles(under root: URL, matchingPaths: Set<String>) -> [ImageFile] {
+    private nonisolated static func scanAllFiles(
+        under root: URL,
+        matchingPaths: Set<String>,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) -> [ImageFile] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,
@@ -417,6 +459,8 @@ class ImageLoader {
         ) else { return [] }
 
         var results: [ImageFile] = []
+        let total = matchingPaths.count
+        var processed = 0
         for case let fileURL as URL in enumerator {
             guard matchingPaths.contains(TagDatabase.hashPath(fileURL.path)) else { continue }
             guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .creationDateKey, .contentModificationDateKey]),
@@ -444,6 +488,10 @@ class ImageLoader {
                 imageFile.isAnimated = isAnimatedImageSource(source)
             }
             results.append(imageFile)
+            processed += 1
+            if let onProgress, total > 0, processed % 10 == 0 {
+                onProgress(min(Double(processed) / Double(total), 0.99))
+            }
         }
         results.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         return results

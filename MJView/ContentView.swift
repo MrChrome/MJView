@@ -146,7 +146,10 @@ struct ContentView: View {
                 ZStack {
                     Color(nsColor: .controlBackgroundColor).opacity(0.85)
                     VStack(spacing: 8) {
-                        ProgressView()
+                        ProgressView(value: loader.loadingProgress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 120)
+                            .animation(.easeInOut(duration: 0.15), value: loader.loadingProgress)
                         Text("Loading…")
                             .foregroundStyle(.secondary)
                             .font(.system(size: 12))
