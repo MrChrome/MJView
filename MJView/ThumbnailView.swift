@@ -8,13 +8,35 @@ import AppKit
 import AVFoundation
 import QuickLookThumbnailing
 
+// Shared in-memory thumbnail cache. NSCache handles memory pressure automatically.
+private final class ThumbnailCache {
+    static let shared = ThumbnailCache()
+    private let cache = NSCache<NSString, NSImage>()
+
+    private init() {
+        cache.countLimit = 600
+    }
+
+    func image(for url: URL, size: CGFloat, modifiedDate: Date) -> NSImage? {
+        cache.object(forKey: cacheKey(url, size, modifiedDate) as NSString)
+    }
+
+    func store(_ image: NSImage, for url: URL, size: CGFloat, modifiedDate: Date) {
+        cache.setObject(image, forKey: cacheKey(url, size, modifiedDate) as NSString)
+    }
+
+    private func cacheKey(_ url: URL, _ size: CGFloat, _ date: Date) -> String {
+        "\(url.path)|\(Int(size))|\(date.timeIntervalSinceReferenceDate)"
+    }
+}
+
 struct ThumbnailView: View {
     let imageFile: ImageFile
     let isSelected: Bool
     let size: CGFloat
 
     var body: some View {
-        AsyncThumbnailImage(url: imageFile.url, isVideo: imageFile.isVideo, isCloudOnly: imageFile.isCloudOnly, size: size)
+        AsyncThumbnailImage(url: imageFile.url, isVideo: imageFile.isVideo, isCloudOnly: imageFile.isCloudOnly, size: size, modifiedDate: imageFile.modifiedDate)
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(alignment: .topTrailing) {
@@ -53,6 +75,7 @@ struct AsyncThumbnailImage: View {
     let isVideo: Bool
     let isCloudOnly: Bool
     let size: CGFloat
+    let modifiedDate: Date
 
     @State private var nsImage: NSImage?
 
@@ -79,13 +102,31 @@ struct AsyncThumbnailImage: View {
             }
         }
         .task(id: "\(url.path)|\(isCloudOnly)") {
-            if isCloudOnly {
-                nsImage = await Self.loadQLThumbnail(url: url, size: size)
-            } else if isVideo {
-                nsImage = await Self.loadVideoThumbnail(url: url)
-            } else {
-                nsImage = await Self.loadImageThumbnail(url: url, size: size)
+            // 1. In-memory cache — synchronous, no async overhead
+            if let cached = ThumbnailCache.shared.image(for: url, size: size, modifiedDate: modifiedDate) {
+                nsImage = cached
+                return
             }
+            // 2. Disk cache — fast local SQLite read, skips network entirely
+            if let cached = await ThumbnailDatabase.shared.image(for: url, size: size, modifiedDate: modifiedDate) {
+                ThumbnailCache.shared.store(cached, for: url, size: size, modifiedDate: modifiedDate)
+                nsImage = cached
+                return
+            }
+            // 3. Decode from file / network
+            let loaded: NSImage?
+            if isCloudOnly {
+                loaded = await Self.loadQLThumbnail(url: url, size: size)
+            } else if isVideo {
+                loaded = await Self.loadVideoThumbnail(url: url)
+            } else {
+                loaded = await Self.loadImageThumbnail(url: url, size: size)
+            }
+            if let loaded {
+                ThumbnailCache.shared.store(loaded, for: url, size: size, modifiedDate: modifiedDate)
+                await ThumbnailDatabase.shared.store(loaded, for: url, size: size, modifiedDate: modifiedDate, isCloudOnly: isCloudOnly)
+            }
+            nsImage = loaded
         }
     }
 
