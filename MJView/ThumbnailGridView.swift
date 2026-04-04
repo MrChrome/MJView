@@ -48,6 +48,7 @@ struct ThumbnailGridView: View {
     var onRenameTag: ((Tag) -> Void)?
     var onRenameImage: ((ImageFile) -> Void)?
     var onDeleteImage: ((ImageFile) -> Void)?
+    var onDeleteSelectedImages: (() -> Void)?
     var onShowPrompt: ((ImageFile) -> Void)?
     @Binding var fileTypeFilter: FileTypeFilter
     @Binding var showUntaggedOnly: Bool
@@ -260,21 +261,29 @@ struct ThumbnailGridView: View {
                                 size: thumbnailSize
                             )
                             .contextMenu {
-                                if imageFile.url.pathExtension.lowercased() == "png" {
-                                    Button("Show Prompt") {
-                                        onShowPrompt?(imageFile)
+                                if selectedImages.count > 1 && selectedImages.contains(imageFile) {
+                                    // Multi-selection context menu (shown when right-clicking on a selected item)
+                                    Button("Delete \(selectedImages.count) images", role: .destructive) {
+                                        onDeleteSelectedImages?()
+                                    }
+                                } else {
+                                    // Single item context menu
+                                    if imageFile.url.pathExtension.lowercased() == "png" {
+                                        Button("Show Prompt") {
+                                            onShowPrompt?(imageFile)
+                                        }
+                                        Divider()
+                                    }
+                                    Button("Show in Finder") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([imageFile.url])
+                                    }
+                                    Button("Rename…") {
+                                        onRenameImage?(imageFile)
                                     }
                                     Divider()
-                                }
-                                Button("Show in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([imageFile.url])
-                                }
-                                Button("Rename…") {
-                                    onRenameImage?(imageFile)
-                                }
-                                Divider()
-                                Button("Delete", role: .destructive) {
-                                    onDeleteImage?(imageFile)
+                                    Button("Delete", role: .destructive) {
+                                        onDeleteImage?(imageFile)
+                                    }
                                 }
                             }
                             .contentShape(Rectangle())

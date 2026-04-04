@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var renamingImage: ImageFile?
     @State private var renameImageText: String = ""
     @State private var deletingImage: ImageFile?
+    @State private var showingMultiDeleteConfirmation: Bool = false
     @State private var promptImage: ImageFile?
     @State private var promptText: String?
     @State private var lastSelectedIndex: Int = 0
@@ -131,6 +132,9 @@ struct ContentView: View {
             },
             onDeleteImage: { image in
                 deletingImage = image
+            },
+            onDeleteSelectedImages: {
+                showingMultiDeleteConfirmation = true
             },
             onShowPrompt: { image in
                 promptImage = image
@@ -362,6 +366,17 @@ struct ContentView: View {
         } message: {
             Text("This will permanently delete the file from disk.")
         }
+        .alert("Delete \(selectedImages.count) images?",
+               isPresented: $showingMultiDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                deleteSelectedImages()
+            }
+            Button("Cancel", role: .cancel) {
+                showingMultiDeleteConfirmation = false
+            }
+        } message: {
+            Text("This will permanently delete all selected files from disk.")
+        }
         .sheet(isPresented: Binding(
             get: { promptImage != nil },
             set: { if !$0 { promptImage = nil; promptText = nil } }
@@ -413,6 +428,50 @@ struct ContentView: View {
             print("Delete failed: \(error)")
         }
         loader.removeImage(image)
+    }
+
+    private func deleteSelectedImages() {
+        let imagesToDelete = selectedImages
+        let sorted = gridImages
+
+        // Find a new selection after deletion
+        let remainingImages = sorted.filter { !imagesToDelete.contains($0) }
+        if let current = selectedImage, imagesToDelete.contains(current) {
+            if let index = sorted.firstIndex(of: current) {
+                // Find the next image that's not being deleted
+                var nextIndex = index + 1
+                while nextIndex < sorted.count && imagesToDelete.contains(sorted[nextIndex]) {
+                    nextIndex += 1
+                }
+                if nextIndex < sorted.count {
+                    selectedImage = sorted[nextIndex]
+                } else {
+                    // No next image, find previous
+                    var prevIndex = index - 1
+                    while prevIndex >= 0 && imagesToDelete.contains(sorted[prevIndex]) {
+                        prevIndex -= 1
+                    }
+                    if prevIndex >= 0 {
+                        selectedImage = sorted[prevIndex]
+                    } else {
+                        selectedImage = nil
+                    }
+                }
+            } else {
+                selectedImage = remainingImages.first
+            }
+        }
+
+        selectedImages = []
+
+        for image in imagesToDelete {
+            do {
+                try FileManager.default.removeItem(at: image.url)
+            } catch {
+                print("Delete failed for \(image.name): \(error)")
+            }
+            loader.removeImage(image)
+        }
     }
 
     private func selectPreviousImage() {
