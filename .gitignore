@@ -1,1 +1,22 @@
+# Xcode
 *.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# DerivedData and build output
+DerivedData/
+build/
+*.o
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride

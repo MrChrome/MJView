@@ -81,6 +81,17 @@ struct ContentView: View {
             },
             onFlipCompleted: { savedURL, mode in
                 handleCropCompleted(savedURL: savedURL, mode: mode)
+            },
+            onShowPrompt: { image in
+                promptImage = image
+                promptText = PromptReader.readPrompt(from: image.url)
+            },
+            onRenameImage: { image in
+                renameImageText = image.name
+                renamingImage = image
+            },
+            onDeleteImage: { image in
+                deletingImage = image
             }
         )
         .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)

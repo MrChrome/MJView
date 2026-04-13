@@ -260,6 +260,9 @@ struct ThumbnailGridView: View {
                                 isSelected: selectedImages.contains(imageFile),
                                 size: thumbnailSize
                             )
+                            .onDrag {
+                                NSItemProvider(contentsOf: imageFile.url) ?? NSItemProvider()
+                            }
                             .contextMenu {
                                 if selectedImages.count > 1 && selectedImages.contains(imageFile) {
                                     // Multi-selection context menu (shown when right-clicking on a selected item)
