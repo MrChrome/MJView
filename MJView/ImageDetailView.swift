@@ -264,6 +264,9 @@ struct ImageDetailView: View {
     @Binding var isFlippedVertical: Bool
     var onCropCompleted: ((URL, CropSaveMode) -> Void)?
     var onFlipCompleted: ((URL, CropSaveMode) -> Void)?
+    var onShowPrompt: ((ImageFile) -> Void)?
+    var onRenameImage: ((ImageFile) -> Void)?
+    var onDeleteImage: ((ImageFile) -> Void)?
 
     @State private var nsImage: NSImage?
     @State private var player: AVPlayer?
@@ -401,6 +404,24 @@ struct ImageDetailView: View {
                             } else {
                                 ProgressView()
                             }
+                        }
+                    }
+                    .contextMenu {
+                        if imageFile.url.pathExtension.lowercased() == "png" {
+                            Button("Show Prompt") {
+                                onShowPrompt?(imageFile)
+                            }
+                            Divider()
+                        }
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([imageFile.url])
+                        }
+                        Button("Rename…") {
+                            onRenameImage?(imageFile)
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            onDeleteImage?(imageFile)
                         }
                     }
                     .task(id: "\(imageFile.url.path)|\(imageFile.isCloudOnly)|\(reloadCounter)") {
