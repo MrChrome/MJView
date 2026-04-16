@@ -337,6 +337,9 @@ struct ContentView: View {
             onSelectPrevious: selectPreviousImage,
             onSelectNext: selectNextImage
         ))
+        .onAppear {
+            appState.imageLoader = loader
+        }
         .modifier(RenameModifier(
             renamingTagInFilter: $renamingTagInFilter,
             renameFilterText: $renameFilterText,
