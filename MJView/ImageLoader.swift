@@ -226,12 +226,15 @@ class ImageLoader {
 
     /// Check whether a file URL refers to a ubiquitous (iCloud) item that has
     /// not been downloaded to the local device yet.
+    /// `.downloaded` means the file body is present locally (just possibly not the
+    /// latest version), so we treat it the same as `.current` — both are readable.
+    /// Only `.notDownloaded` requires a download before the file can be opened.
     private nonisolated static func isCloudOnlyFile(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]) else {
             return false
         }
         guard values.isUbiquitousItem == true else { return false }
-        return values.ubiquitousItemDownloadingStatus != .current
+        return values.ubiquitousItemDownloadingStatus == .notDownloaded
     }
 
     private nonisolated static func scanFolder(

@@ -11,6 +11,8 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+MJView.app
+arm64*
 
 # Swift Package Manager
 .build/

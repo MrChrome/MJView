@@ -292,22 +292,14 @@ struct ImageDetailView: View {
                     ZStack {
                         Color(nsColor: .controlBackgroundColor)
 
-                        if imageFile.isCloudOnly {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                    .scaleEffect(1.5)
-                                Text("Downloading from iCloud…")
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if imageFile.isVideo {
+                        if imageFile.isVideo {
                             if let player {
                                 VideoPlayerView(player: player)
                             } else {
                                 ProgressView()
                             }
-                        } else {
-                            if let nsImage {
-                                if imageFile.isAnimated {
+                        } else if let nsImage {
+                            if imageFile.isAnimated {
                                     // All animated formats use FrameAnimatedImageView so the
                                     // scrubber can control playback uniformly.
                                     ZStack(alignment: .bottom) {
@@ -401,9 +393,15 @@ struct ImageDetailView: View {
                                         }
                                     }
                                 }
-                            } else {
+                        } else if imageFile.isCloudOnly {
+                            VStack(spacing: 12) {
                                 ProgressView()
+                                    .scaleEffect(1.5)
+                                Text("Downloading from iCloud…")
+                                    .foregroundStyle(.secondary)
                             }
+                        } else {
+                            ProgressView()
                         }
                     }
                     .contextMenu {
@@ -424,12 +422,11 @@ struct ImageDetailView: View {
                             onDeleteImage?(imageFile)
                         }
                     }
-                    .task(id: "\(imageFile.url.path)|\(imageFile.isCloudOnly)|\(reloadCounter)") {
+                    .task(id: "\(imageFile.url.path)|\(reloadCounter)") {
                         nsImage = nil
                         player?.pause()
                         player = nil
                         frameAnimator.stop()
-                        guard !imageFile.isCloudOnly else { return }
                         if imageFile.isVideo {
                             player = AVPlayer(url: imageFile.url)
                         } else {
@@ -645,6 +642,9 @@ struct ImageDetailView: View {
 
     private func loadFullImage(url: URL) async -> NSImage? {
         return await Task.detached {
+            // Kick off the iCloud download if the file isn't local yet.
+            // Data(contentsOf:) on macOS will block until the download completes.
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
             guard let data = try? Data(contentsOf: url) else { return nil }
             return NSImage(data: data)
         }.value
