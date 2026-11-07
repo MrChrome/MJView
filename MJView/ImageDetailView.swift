@@ -16,6 +16,9 @@ struct VideoPlayerView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .floating
+        // Disable Visual Look Up / subject lifting, which adds
+        // "Copy Subject" and "Share Subject" to the context menu.
+        view.allowsVideoFrameAnalysis = false
         view.player = player
         return view
     }
